@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>School Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="site-header">
+    <h1 id="school-name">School Dashboard</h1>
+    <p id="last-updated" class="last-updated"></p>
+  </header>
+
+  <div class="search-bar">
+    <label for="search-input" class="visually-hidden">Search school information</label>
+    <input id="search-input" type="search" placeholder="Search events, homework, announcements…" autocomplete="off" />
+  </div>
+
+  <p id="app-error" class="app-error" hidden></p>
+
+  <main>
+    <section id="search-section" hidden aria-live="polite">
+      <h2>Search Results</h2>
+      <div id="search-results" class="card-list"></div>
+    </section>
+
+    <div id="main-sections">
+      <section id="important-section">
+        <h2>Important</h2>
+        <div id="important-list" class="card-list"></div>
+      </section>
+
+      <section id="this-week-section">
+        <h2>This Week</h2>
+        <p id="week-range" class="section-subtitle"></p>
+        <div id="this-week-list" class="card-list"></div>
+      </section>
+
+      <section id="upcoming-section">
+        <h2>Upcoming</h2>
+        <div id="upcoming-list" class="card-list"></div>
+      </section>
+
+      <section id="supplies-section">
+        <h2>Supplies</h2>
+        <div id="supplies-list" class="card-list"></div>
+      </section>
+
+      <section id="announcements-section">
+        <h2>Announcements</h2>
+        <div id="announcements-list" class="card-list"></div>
+      </section>
+
+      <section id="sources-section">
+        <h2>Sources</h2>
+        <div id="sources-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

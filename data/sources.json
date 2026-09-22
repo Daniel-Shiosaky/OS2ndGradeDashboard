@@ -1,0 +1,27 @@
+{
+  "school_name": "Example Elementary School",
+  "timezone": "America/New_York",
+  "sources": [
+    {
+      "name": "School Website",
+      "url": "https://example.com",
+      "type": "website",
+      "enabled": true,
+      "priority": 4
+    },
+    {
+      "name": "School Calendar",
+      "url": "https://example.com/calendar",
+      "type": "calendar",
+      "enabled": true,
+      "priority": 2
+    },
+    {
+      "name": "Weekly Newsletter",
+      "url": "https://example.com/newsletter.pdf",
+      "type": "pdf",
+      "enabled": false,
+      "priority": 3
+    }
+  ]
+}

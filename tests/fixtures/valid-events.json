@@ -1,0 +1,17 @@
+{
+  "school_name": "Fixture Elementary",
+  "last_updated": "2026-09-21T18:00:00Z",
+  "events": [
+    {
+      "id": "science-quiz-2026-09-24",
+      "date": "2026-09-24",
+      "time": null,
+      "title": "Science Quiz",
+      "category": "quiz",
+      "description": "Chapter 3 quiz.",
+      "importance": "high",
+      "source": { "name": "Weekly Newsletter", "url": "https://example.com/newsletter.pdf" },
+      "uncertain": false
+    }
+  ]
+}

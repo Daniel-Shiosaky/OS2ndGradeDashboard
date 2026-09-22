@@ -1,0 +1,13 @@
+{
+  "school_name": "Fixture Elementary",
+  "last_updated": "2026-09-21T18:00:00Z",
+  "events": [
+    {
+      "id": "bad-event",
+      "date": "09-24-2026",
+      "title": "Bad Date Format",
+      "category": "not-a-real-category",
+      "source": { "name": "School Website" }
+    }
+  ]
+}

@@ -32,7 +32,7 @@ follows the original spec as written.
 ## Status: what exists right now
 
 ```
-school-dashboard/
+OS2ndGradeDashboard/
 ├── .env                      # local secrets, gitignored, placeholder values only
 ├── .env.example              # committed template — AI_PROVIDER/AI_API_KEY/AI_MODEL/AI_TIMEOUT_MS
 ├── .gitignore                # excludes .env, node_modules, public/app.js (build output), output/raw/
@@ -99,29 +99,23 @@ errors. Screenshots were taken but not saved into the repo.
    key); likely another GitHub Actions-triggered or serverless endpoint.
    Not attempted yet since Phases 1–4 (dashboard, automated data,
    deployment, WhatsApp summary) come first per the spec's phase order.
-4. **GitHub Pages not yet enabled on an actual repo** — the workflow is
+4. **GitHub Pages not yet enabled on the repo** — the workflow is
    written and typechecked as YAML-adjacent (not validated by GitHub
-   Actions itself, since there is no `git` repo / remote wired up for
-   *this* project yet — see note below). Someone needs to push this to
-   a real GitHub repo, set Pages source to "GitHub Actions", and add the
-   `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` secrets before the workflow can
-   run for real.
+   Actions itself until it runs). Before the workflow can run for real,
+   enable Pages with source set to "GitHub Actions", and add the
+   `AI_PROVIDER`/`AI_API_KEY`/`AI_MODEL` secrets.
 5. Empty placeholder directories still empty: `sources/` (README.md for
    it was never called for in the plan — low priority, spec section 6
    only used it as an example of "no hardcoded URLs" convention, and
    `data/sources.json` already fulfills that).
 
-## Important: no git repo wired up for this project yet
+## Important: this project now lives in the `OS2ndGradeDashboard` git repo
 
-`school-dashboard/` itself is **not** a git repository (no `.git/` here).
-There is a sibling directory, `OS2ndGradeDashboard/`, which **is** an
-empty git repo with `origin` set to
-`https://github.com/Daniel-Shiosaky/OS2ndGradeDashboard.git` — presumably
-intended as the eventual home for this project, but nothing has been
-copied into it yet. Before the GitHub Actions workflow can run for real,
-someone needs to decide: turn `school-dashboard/` into the git repo
-directly (`git init` here, add that remote), or move/copy this content
-into `OS2ndGradeDashboard/`. Don't assume which one — ask.
+`OS2ndGradeDashboard/` **is** the git repository for this project, with
+`origin` set to `https://github.com/Daniel-Shiosaky/OS2ndGradeDashboard.git`.
+The previous `school-dashboard/` sibling directory is the original working
+location; all source files have been copied into `OS2ndGradeDashboard/` and
+should be maintained here going forward.
 
 ## Design notes worth knowing before continuing
 
