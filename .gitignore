@@ -33,3 +33,6 @@ Thumbs.db
 
 # Generated pipeline artifacts (raw fetched content, not source-controlled)
 output/raw/
+data/pending-review.json
+
+/docs/*

@@ -53,6 +53,18 @@ jobs:
           AI_MODEL: ${{ secrets.AI_MODEL }}
           AI_TIMEOUT_MS: ${{ secrets.AI_TIMEOUT_MS }}
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          SCHOOL_PORTAL_LOGIN_URL: ${{ secrets.SCHOOL_PORTAL_LOGIN_URL }}
+          SCHOOL_PORTAL_USERNAME: ${{ secrets.SCHOOL_PORTAL_USERNAME }}
+          SCHOOL_PORTAL_PASSWORD: ${{ secrets.SCHOOL_PORTAL_PASSWORD }}
+          # Referenced indirectly via urlEnv/filterFromEnv in data/sources.json
+          # so real addresses/URLs never appear in the committed, public file.
+          SCHOOL_PORTAL_ANNOUNCEMENTS_URL: ${{ secrets.SCHOOL_PORTAL_ANNOUNCEMENTS_URL }}
+          GMAIL_FILTER_COMMUNICATIONS: ${{ secrets.GMAIL_FILTER_COMMUNICATIONS }}
+          GMAIL_FILTER_MASS_EMAILS: ${{ secrets.GMAIL_FILTER_MASS_EMAILS }}
+          GMAIL_FILTER_TEACHER: ${{ secrets.GMAIL_FILTER_TEACHER }}
+          GMAIL_FILTER_CLASSDOJO: ${{ secrets.GMAIL_FILTER_CLASSDOJO }}
         run: npm run pipeline
 
       - name: Commit updated data if changed

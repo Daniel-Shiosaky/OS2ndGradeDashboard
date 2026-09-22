@@ -22,6 +22,45 @@
       "type": "pdf",
       "enabled": false,
       "priority": 3
+    },
+    {
+      "name": "School Portal Announcements",
+      "urlEnv": "SCHOOL_PORTAL_ANNOUNCEMENTS_URL",
+      "type": "school_portal",
+      "enabled": false,
+      "priority": 1
+    },
+    {
+      "name": "School Office Communications",
+      "type": "gmail",
+      "enabled": true,
+      "priority": 1,
+      "filterFromEnv": "GMAIL_FILTER_COMMUNICATIONS",
+      "lookbackDays": 14
+    },
+    {
+      "name": "School Mass Emails",
+      "type": "gmail",
+      "enabled": true,
+      "priority": 1,
+      "filterFromEnv": "GMAIL_FILTER_MASS_EMAILS",
+      "lookbackDays": 14
+    },
+    {
+      "name": "Teacher Emails",
+      "type": "gmail",
+      "enabled": true,
+      "priority": 2,
+      "filterFromEnv": "GMAIL_FILTER_TEACHER",
+      "lookbackDays": 14
+    },
+    {
+      "name": "ClassDojo Digest Emails",
+      "type": "gmail",
+      "enabled": true,
+      "priority": 5,
+      "filterFromEnv": "GMAIL_FILTER_CLASSDOJO",
+      "lookbackDays": 14
     }
   ]
 }

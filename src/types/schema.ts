@@ -55,13 +55,29 @@ export const WeekDataSchema = z.object({
 });
 export type WeekData = z.infer<typeof WeekDataSchema>;
 
-export const SourceConfigEntrySchema = z.object({
-  name: z.string().min(1),
-  url: z.string().url(),
-  type: z.enum(["website", "calendar", "pdf"]),
-  enabled: z.boolean().default(true),
-  priority: z.number().int().min(1).default(99),
-});
+export const SourceConfigEntrySchema = z
+  .object({
+    name: z.string().min(1),
+    // Required for website/calendar/pdf/school_portal (the page to read).
+    // Not applicable to gmail, which is configured via env vars instead.
+    // Use urlEnv instead to keep an identifying URL (e.g. a school's real
+    // subdomain) out of a committed/public sources.json.
+    url: z.string().url().optional(),
+    urlEnv: z.string().optional(),
+    type: z.enum(["website", "calendar", "pdf", "gmail", "school_portal"]),
+    enabled: z.boolean().default(true),
+    priority: z.number().int().min(1).default(99),
+    // gmail-only: restrict the mailbox search to a specific sender. Use
+    // filterFromEnv instead to keep a real address out of a committed file.
+    filterFrom: z.string().email().optional(),
+    filterFromEnv: z.string().optional(),
+    // gmail-only: how many days back to search. Defaults applied in fetchSources.
+    lookbackDays: z.number().int().min(1).optional(),
+  })
+  .refine((entry) => entry.type === "gmail" || entry.url !== undefined || entry.urlEnv !== undefined, {
+    message: "url or urlEnv is required for all source types except gmail",
+    path: ["url"],
+  });
 export type SourceConfigEntry = z.infer<typeof SourceConfigEntrySchema>;
 
 export const SourcesConfigSchema = z.object({
