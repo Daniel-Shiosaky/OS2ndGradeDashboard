@@ -8,9 +8,7 @@ and GitHub Actions, with no database.
 The dashboard **organizes information, it does not invent it** — every
 event carries a source, and the AI extraction step is instructed to omit
 anything it can't confidently support from the source text. See
-[`os2ndgrade_dashboard_POC.md`](../os2ndgrade_dashboard_POC.md) for the
-full product spec, and [`AGENTS.md`](./AGENTS.md) for implementation notes
-and current project status.
+[`Docs/osclassinfo.md`](./Docs/osclassinfo.md) for the full product spec.
 
 ## How it works
 
@@ -24,8 +22,7 @@ Sources (website / calendar / PDF)
    processWithAi.ts
         │
         ▼  merge, conflict resolution, change log
-   generateDashboard.ts  →  data/events.json, data/current-week.json,
-        │                    output/whatsapp-message.txt
+   generateDashboard.ts  →  data/events.json, output/whatsapp-message.txt
         ▼  schema + duplicate-id check
    validateData.ts
 ```
@@ -92,11 +89,21 @@ Supported source types:
   [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
   (requires 2-Step Verification) — never use your real Gmail password here.
 
-**ClassDojo is not supported.** Its login page returns a 403 to headless
-browsers (bot detection), and getting past that would mean spoofing browser
-fingerprints to evade a service's anti-automation controls — out of scope
-for this project. If your ClassDojo account can email you class updates,
-turn that on and point a `gmail` source at it instead.
+**ClassDojo** (`type: "classdojo"`) reads the parent app's own pages —
+`https://home.classdojo.com/#/events` and `#/story` — using
+`CLASSDOJO_EMAIL` / `CLASSDOJO_PASSWORD`.
+
+An earlier version of this file claimed ClassDojo 403s headless browsers.
+That is not the case: `home.classdojo.com/#/login` answers 200 and renders
+the parent login form normally, headless included. The login goes straight
+to that route rather than clicking through classdojo.com, because on the
+marketing site every "Parent" control is labelled *"Parent sign up"* and the
+form's field ids are regenerated per render (`textFieldInputId1`, `...3`),
+so only attribute selectors (`input[name=email]`, `input[type=password]`)
+are stable. The post-login upsell modal is dismissed automatically.
+
+Because it needs an interactive login, it is marked `localOnly` and
+scheduled CI runs skip it.
 
 **Keeping identifying info out of `data/sources.json`.** If this repo is
 public, a real teacher's email or your school's exact subdomain doesn't
@@ -145,6 +152,14 @@ runs the full pipeline, commits `data/events.json` /
 `data/current-week.json` / `output/whatsapp-message.txt` if they changed,
 and deploys `public/` (with a copy of the current data) to GitHub Pages.
 
+**The dashboard deploys even if the pipeline fails.** If the AI provider
+isn't configured yet, or every source is unreachable, the pipeline step is
+recorded as failed (the run goes red) but the previously committed data —
+including the sample data on a fresh repo — is still validated, staged and
+published. That means you can get the site live on a phone before touching
+any secret. Data that fails schema validation is never staged or committed,
+so a red run can't replace a good dashboard with a broken one.
+
 To enable it on a real repository:
 
 1. **Settings → Pages → Source**: set to "GitHub Actions".
@@ -157,10 +172,17 @@ To enable it on a real repository:
    `SCHOOL_PORTAL_PASSWORD` as secrets the same way, plus any `urlEnv` /
    `filterFromEnv` names your `data/sources.json` references (e.g.
    `GMAIL_FILTER_TEACHER`, `SCHOOL_PORTAL_ANNOUNCEMENTS_URL`).
-3. Optional: add an Actions **variable** (not secret) `DASHBOARD_URL` —
+3. **Required for the email lane's privacy filter**: add `REDACT_NAMES`
+   (comma-separated first names to strip and to treat as "this message is about
+   one child") and `MAIL_BULK_DOMAINS` (your school's mass-mailer sending
+   domain) as secrets. Without them a scheduled run silently publishes more
+   than a local run does; the pipeline logs a warning if `REDACT_NAMES` is
+   missing. `SCHOOL_PORTAL_*` and `CLASSDOJO_*` are deliberately **not** needed
+   in CI — those sources are `localOnly` and skipped there.
+4. Optional: add an Actions **variable** (not secret) `DASHBOARD_URL` —
    the public URL used in the generated WhatsApp message. Defaults to a
    placeholder if unset.
-4. Trigger the workflow manually once (Actions tab → Update Dashboard →
+5. Trigger the workflow manually once (Actions tab → Update Dashboard →
    Run workflow) to confirm it deploys.
 
 ## Reliability

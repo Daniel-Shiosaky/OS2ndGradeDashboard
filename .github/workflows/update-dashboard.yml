@@ -47,6 +47,12 @@ jobs:
         run: npm run build:frontend
 
       - name: Run update pipeline
+        id: pipeline
+        # Non-fatal on purpose: a missing AI credential or a broken source must
+        # not stop the previously committed (or sample) data from reaching Pages
+        # — the last valid dashboard should stay available (brief section 23).
+        # The run is still marked failed, by the final step of this job.
+        continue-on-error: true
         env:
           AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
@@ -55,23 +61,35 @@ jobs:
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          SCHOOL_PORTAL_LOGIN_URL: ${{ secrets.SCHOOL_PORTAL_LOGIN_URL }}
-          SCHOOL_PORTAL_USERNAME: ${{ secrets.SCHOOL_PORTAL_USERNAME }}
-          SCHOOL_PORTAL_PASSWORD: ${{ secrets.SCHOOL_PORTAL_PASSWORD }}
-          # Referenced indirectly via urlEnv/filterFromEnv in data/sources.json
-          # so real addresses/URLs never appear in the committed, public file.
-          SCHOOL_PORTAL_ANNOUNCEMENTS_URL: ${{ secrets.SCHOOL_PORTAL_ANNOUNCEMENTS_URL }}
+          # Referenced indirectly via filterFromEnv in data/sources.json so real
+          # addresses never appear in the committed, public file.
           GMAIL_FILTER_COMMUNICATIONS: ${{ secrets.GMAIL_FILTER_COMMUNICATIONS }}
           GMAIL_FILTER_MASS_EMAILS: ${{ secrets.GMAIL_FILTER_MASS_EMAILS }}
           GMAIL_FILTER_TEACHER: ${{ secrets.GMAIL_FILTER_TEACHER }}
-          GMAIL_FILTER_CLASSDOJO: ${{ secrets.GMAIL_FILTER_CLASSDOJO }}
+          # REQUIRED for the email lane's privacy filter. Without REDACT_NAMES the
+          # "message names the child" gate silently no-ops, and without
+          # MAIL_BULK_DOMAINS the school's mass-mailer is not recognised as a
+          # broadcast. Both must be set as secrets for a scheduled run.
+          REDACT_NAMES: ${{ secrets.REDACT_NAMES }}
+          MAIL_BULK_DOMAINS: ${{ secrets.MAIL_BULK_DOMAINS }}
+          # No SCHOOL_PORTAL_* or CLASSDOJO_* here on purpose: those sources are
+          # localOnly and skipped in CI, so passing their credentials to the
+          # runner would be exposure with no purpose.
         run: npm run pipeline
 
+      # Gates both paths: on success this re-checks what the pipeline just
+      # wrote; on failure it checks the previously committed data before that
+      # gets republished. Failing here stops the job before anything is staged,
+      # so the existing deployment stays live (brief section 24).
+      - name: Validate publishable data
+        run: npm run validate-data
+
       - name: Commit updated data if changed
+        if: steps.pipeline.outcome == 'success'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/events.json data/current-week.json output/whatsapp-message.txt
+          git add data/events.json output/whatsapp-message.txt
           if git diff --cached --quiet; then
             echo "No data changes to commit."
           else
@@ -89,7 +107,6 @@ jobs:
         run: |
           mkdir -p public/data
           cp data/events.json public/data/events.json
-          cp data/current-week.json public/data/current-week.json
           echo "ready=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload Pages artifact
@@ -97,9 +114,19 @@ jobs:
         with:
           path: public
 
+      # Last, so the previous valid data has already been staged for deploy.
+      - name: Fail the run if the pipeline did not succeed
+        if: steps.pipeline.outcome != 'success'
+        run: |
+          echo "::error::Update pipeline failed; publishing the previously committed data instead."
+          exit 1
+
   deploy:
     needs: update
-    if: needs.update.outputs.pages_ready == 'true'
+    # !cancelled() rather than success(): a failed update job still deploys,
+    # provided staging actually produced an artifact from valid data. Without
+    # it, GitHub skips this job whenever `update` is red.
+    if: ${{ !cancelled() && needs.update.outputs.pages_ready == 'true' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages

@@ -1,0 +1,50 @@
+{
+  "_items": [
+    {
+      "_id": "post-1",
+      "time": "2026-09-23T01:22:48.104Z",
+      "type": "textAndAttachment",
+      "headerText": "Mrs. Example",
+      "headerSubtext": "Mrs. Example's Class",
+      "senderName": "Mrs. Example",
+      "contents": { "body": "I apologize for the late dojo message! Tomorrow is See You at the Pole. They are asking that scholars come to school dressed in uniform instead of PE clothes." }
+    },
+    {
+      "_id": "post-2",
+      "time": "2026-09-21T21:29:20.878Z",
+      "type": "textAndAttachment",
+      "senderName": "Mrs. Example",
+      "contents": { "body": "Thank you to those of you who caught our mistake on the Newsletter! The Math Quiz will be Wednesday 9/23 as stated in our email! Thursday 9/24 will be the North America Map test." }
+    },
+    {
+      "_id": "post-3",
+      "time": "2026-09-18T19:56:54.598Z",
+      "type": "textAndAttachment",
+      "senderName": "Mrs. Example",
+      "contents": { "body": "Happy Friday!\n\nFruit pops courtesy of the Testfamily family! Thank you for helping us celebrate our scholars finishing their spelling test." }
+    },
+    {
+      "_id": "post-4",
+      "time": "2026-09-17T21:47:37.000Z",
+      "type": "textAndAttachment",
+      "senderName": "Mrs. Example",
+      "contents": { "body": "----------\nCLASS EVENT\n\nFall Conferences\nSeptember 22, 2026\n9:00 AM to 4:00 PM EDT\n----------\n\nZoom link to follow." }
+    },
+    {
+      "_id": "post-5",
+      "time": "2026-09-16T18:00:00.000Z",
+      "type": "textAndAttachment",
+      "senderName": "Mrs. Example",
+      "contents": { "body": "We had a lovely time at the celebration today and everyone enjoyed themselves!" }
+    },
+    {
+      "_id": "post-6",
+      "time": "2026-09-15T18:00:00.000Z",
+      "type": "textAndAttachment",
+      "senderName": "Mrs. Example",
+      "contents": { "body": "Reading challenge starts Monday.\nScholar Log In Information: Username: firstname.lastname@scholars.example.net\nPassword: Scholar's birthdate\nPlease log 20 minutes of practice." }
+    }
+  ],
+  "_links": { "next": { "href": "/api/storyFeed?before=post-6" } },
+  "_metadata": { "postsExist": true }
+}

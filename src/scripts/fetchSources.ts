@@ -9,11 +9,10 @@
 //   gmail source. Each source is a mailbox search (optionally filtered by
 //   sender), not a URL.
 //
-// ClassDojo is intentionally not supported: its login page returns a 403 to
-// headless browsers (bot detection), and defeating that would mean spoofing
-// browser fingerprints to evade a service's anti-automation controls, which
-// this project won't do. If ClassDojo can email you digests, point a gmail
-// source at that instead.
+// - classdojo: Playwright login to the parent app for a session, then the app's
+//   own JSON APIs (parentCalendarEvent, storyFeed) over those cookies. An older
+//   comment here claimed ClassDojo 403s headless browsers; it does not — the
+//   login page answers 200 and renders normally.
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -21,11 +20,52 @@ import { chromium } from "playwright";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { SourcesConfigSchema, type SourceConfigEntry } from "../types/schema.js";
+import { googleDocExportUrl, pickLatestNewsletter, type BoardLink } from "../shared/newsletter.js";
+import { classDojoApiPath } from "../shared/parseClassDojo.js";
+import { slugify } from "../shared/text.js";
 import { isMainModule } from "./runGuard.js";
 
 const DATA_DIR = path.resolve(import.meta.dirname, "../../data");
 const RAW_OUTPUT_DIR = path.resolve(import.meta.dirname, "../../output/raw");
 const DEFAULT_GMAIL_LOOKBACK_DAYS = 14;
+
+/**
+ * Waits for a single-page app to stop changing, then returns its text.
+ *
+ * `waitUntil: "networkidle"` is useless against the Blackbaud portal: it keeps
+ * connections open indefinitely, so the wait always times out. Worse, reading
+ * too early returns only the nav shell (~200 chars) instead of the ~10k chars
+ * of real content. Polling until the text length holds steady handles both.
+ * Navigation mid-poll destroys the execution context, so that is tolerated.
+ */
+async function settledText(
+  page: import("playwright").Page,
+  { timeout = 45_000, quietMs = 3_000 } = {},
+): Promise<string> {
+  const start = Date.now();
+  let lastLength = -1;
+  let stableSince = Date.now();
+  let text = "";
+
+  while (Date.now() - start < timeout) {
+    let length: number;
+    try {
+      text = await page.evaluate(() => (document.body?.innerText ?? "").trim());
+      length = text.length;
+    } catch {
+      await page.waitForTimeout(800); // context destroyed by a redirect; retry
+      continue;
+    }
+    if (length !== lastLength) {
+      lastLength = length;
+      stableSince = Date.now();
+    } else if (length > 200 && Date.now() - stableSince > quietMs) {
+      break;
+    }
+    await page.waitForTimeout(600);
+  }
+  return text;
+}
 
 export interface FetchedSource {
   source: SourceConfigEntry;
@@ -36,13 +76,6 @@ export interface FetchedSource {
 export interface FetchReport {
   fetched: FetchedSource[];
   failures: Array<{ source: SourceConfigEntry; error: string }>;
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
 }
 
 async function loadSourcesConfig() {
@@ -112,18 +145,76 @@ async function fetchWebsiteSources(sources: SourceConfigEntry[]): Promise<FetchR
   return { fetched, failures };
 }
 
-// Logs into a Blackbaud/MySchoolApp-style portal (#Username / #Password /
-// #loginBtn, with an optional #nextBtn intermediate step) once, then fetches
-// each configured school_portal page's body text in the same session.
+function portalCredentials() {
+  const loginUrl = process.env.SCHOOL_PORTAL_LOGIN_URL;
+  const username = process.env.SCHOOL_PORTAL_USERNAME;
+  const password = process.env.SCHOOL_PORTAL_PASSWORD;
+  if (!loginUrl || !username || !password) return null;
+  return { loginUrl, username, password };
+}
+
+/**
+ * Signs into a Blackbaud MySchoolApp portal.
+ *
+ * The flow is three hops, not one form:
+ *   1. MySchoolApp collects only the username (#Username) and submits #nextBtn.
+ *   2. That redirects to app.blackbaud.com/signin, where the email arrives
+ *      prepopulated; pressing Continue advances it.
+ *   3. The password step is an Azure AD B2C form rendered *inside an iframe*
+ *      served from id.blackbaud.com. Playwright pierces shadow DOM but never
+ *      frame boundaries, so `page.locator("#password")` finds nothing on the
+ *      main frame — the field has to be reached through a frameLocator. The
+ *      iframe's name is regenerated per load (sky-id-gen__<timestamp>__1), so
+ *      it is matched by URL.
+ *
+ * A first login from an unrecognised device can also demand a 6-digit code
+ * emailed to the account, which no unattended run can satisfy. That is why
+ * portal-backed sources are marked localOnly and skipped in CI.
+ */
+async function loginToPortal(
+  context: import("playwright").BrowserContext,
+  creds: { loginUrl: string; username: string; password: string },
+): Promise<void> {
+  const page = await context.newPage();
+  try {
+    await page.goto(creds.loginUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForSelector("#Username", { state: "visible", timeout: 30_000 });
+    await page.fill("#Username", creds.username);
+    await page.click("#nextBtn");
+
+    await page.waitForURL(/app\.blackbaud\.com\/signin/, { timeout: 45_000 });
+    const emailBox = page.locator("input[type=email]").first();
+    await emailBox.waitFor({ state: "visible", timeout: 30_000 });
+    if ((await emailBox.inputValue()) !== creds.username) {
+      await emailBox.fill(creds.username);
+    }
+    await page.getByRole("button", { name: /^continue$/i }).click();
+
+    const idFrame = page.frameLocator('iframe[src*="id.blackbaud.com"]');
+    const passwordBox = idFrame.locator("#password");
+    await passwordBox.waitFor({ state: "visible", timeout: 60_000 });
+    await passwordBox.fill(creds.password);
+    await idFrame.getByRole("button", { name: /^sign in$/i }).click();
+
+    await page.waitForURL(/myschoolapp\.com\/app/, { timeout: 120_000 });
+    await page.waitForTimeout(8_000); // let the post-login redirect chain settle
+  } finally {
+    await page.close();
+  }
+}
+
+/** True when the page bounced back to the portal's login screen. */
+function looksLoggedOut(text: string): boolean {
+  return /Blackbaud ID \(Email\)/.test(text) || text.trim().length < 150;
+}
+
 async function fetchSchoolPortalSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
   const fetched: FetchedSource[] = [];
   const failures: FetchReport["failures"] = [];
   if (sources.length === 0) return { fetched, failures };
 
-  const loginUrl = process.env.SCHOOL_PORTAL_LOGIN_URL;
-  const username = process.env.SCHOOL_PORTAL_USERNAME;
-  const password = process.env.SCHOOL_PORTAL_PASSWORD;
-  if (!loginUrl || !username || !password) {
+  const creds = portalCredentials();
+  if (!creds) {
     const error =
       "SCHOOL_PORTAL_LOGIN_URL / SCHOOL_PORTAL_USERNAME / SCHOOL_PORTAL_PASSWORD not configured";
     for (const source of sources) {
@@ -136,32 +227,268 @@ async function fetchSchoolPortalSources(sources: SourceConfigEntry[]): Promise<F
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext();
-    const loginPage = await context.newPage();
-    try {
-      await loginPage.goto(loginUrl, { waitUntil: "networkidle", timeout: 30_000 });
-      await loginPage.fill("#Username", username);
-      await loginPage.fill("#Password", password);
-
-      const loginBtn = loginPage.locator("#loginBtn");
-      if (await loginBtn.isVisible().catch(() => false)) {
-        await loginBtn.click();
-      } else {
-        await loginPage.locator("#nextBtn").click();
-        await loginPage.waitForTimeout(1000);
-        await loginPage.locator("#loginBtn").click();
-      }
-      await loginPage.waitForLoadState("networkidle", { timeout: 30_000 });
-    } finally {
-      await loginPage.close();
-    }
+    await loginToPortal(context, creds);
 
     for (const source of sources) {
       const page = await context.newPage();
       try {
-        await page.goto(resolveUrl(source), { waitUntil: "networkidle", timeout: 30_000 });
-        const text = (await page.evaluate(() => document.body?.innerText ?? "")).trim();
+        await page.goto(resolveUrl(source), { waitUntil: "domcontentloaded", timeout: 60_000 });
+        const text = await settledText(page);
+        if (looksLoggedOut(text)) throw new Error("session was not authenticated for this page");
         fetched.push({ source, text, fetchedAt: new Date().toISOString() });
-        console.log(`  OK   ${source.name}`);
+        console.log(`  OK   ${source.name} (${text.length} chars)`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        failures.push({ source, error: message });
+        console.log(`  FAIL ${source.name}: ${message}`);
+      } finally {
+        await page.close();
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return { fetched, failures };
+}
+
+const CLASSDOJO_LOGIN = "https://home.classdojo.com/#/login";
+
+/**
+ * Signs into the ClassDojo parent app.
+ *
+ * Goes straight to the app's own login route rather than clicking through
+ * classdojo.com → Log in → Parent. That marketing path is both longer and
+ * ambiguous: every "Parent" control there is labelled "Parent sign up", and the
+ * form's field ids are regenerated per render (textFieldInputId1, ...3, ...), so
+ * only attribute selectors are safe.
+ *
+ * Contrary to an earlier note in this repo, the app does NOT 403 headless
+ * browsers — it answers 200 and renders the parent login form normally.
+ */
+async function loginToClassDojo(
+  context: import("playwright").BrowserContext,
+  creds: { email: string; password: string },
+): Promise<void> {
+  const page = await context.newPage();
+  try {
+    await page.goto(CLASSDOJO_LOGIN, { waitUntil: "domcontentloaded", timeout: 60_000 });
+
+    const email = page.locator('input[name="email"]').first();
+    await email.waitFor({ state: "visible", timeout: 45_000 });
+    await email.fill(creds.email);
+    await page.locator('input[type="password"]').first().fill(creds.password);
+
+    // Keeps the session alive so repeat runs don't re-trigger a device check.
+    const keepLoggedIn = page.locator('input[type="checkbox"]').first();
+    if (await keepLoggedIn.count()) await keepLoggedIn.check().catch(() => {});
+
+    await page.locator('button[type="submit"]').first().click();
+    await page.waitForURL((url) => !url.hash.includes("/login"), { timeout: 90_000 });
+    await page.waitForTimeout(5_000);
+    await dismissClassDojoModals(page);
+  } finally {
+    await page.close();
+  }
+}
+
+/**
+ * Closes the upsell/paywall modal ClassDojo shows after login ("No thanks").
+ * Wording varies and it does not always appear, so every label is optional and
+ * a miss is not an error.
+ */
+async function dismissClassDojoModals(page: import("playwright").Page): Promise<void> {
+  const dismissals = [
+    /^no,? thanks$/i,
+    /^not now$/i,
+    /^maybe later$/i,
+    /^skip$/i,
+    /^dismiss$/i,
+    /^close$/i,
+  ];
+  for (let pass = 0; pass < 3; pass++) {
+    let clicked = false;
+    for (const name of dismissals) {
+      const button = page.getByRole("button", { name }).first();
+      if (await button.count().catch(() => 0)) {
+        if (await button.isVisible().catch(() => false)) {
+          await button.click().catch(() => {});
+          await page.waitForTimeout(1_500);
+          clicked = true;
+          break;
+        }
+      }
+    }
+    // Some variants only offer an aria-labelled close control.
+    if (!clicked) {
+      const closeButton = page.locator('[aria-label="Close"], [aria-label="close"]').first();
+      if ((await closeButton.count().catch(() => 0)) &&
+        (await closeButton.isVisible().catch(() => false))) {
+        await closeButton.click().catch(() => {});
+        await page.waitForTimeout(1_500);
+        clicked = true;
+      }
+    }
+    if (!clicked) return;
+  }
+}
+
+async function fetchClassDojoSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
+  const fetched: FetchedSource[] = [];
+  const failures: FetchReport["failures"] = [];
+  if (sources.length === 0) return { fetched, failures };
+
+  // Falls back to the school-portal login, which is the same account here.
+  // Keeping the dedicated names as the first choice means the two can be split
+  // later without touching code, and avoids duplicating a password in .env.
+  const usingPortalCreds = !process.env.CLASSDOJO_EMAIL || !process.env.CLASSDOJO_PASSWORD;
+  const email = process.env.CLASSDOJO_EMAIL || process.env.SCHOOL_PORTAL_USERNAME;
+  const password = process.env.CLASSDOJO_PASSWORD || process.env.SCHOOL_PORTAL_PASSWORD;
+  if (email && password && usingPortalCreds) {
+    console.log("  ..   ClassDojo: using SCHOOL_PORTAL_USERNAME / SCHOOL_PORTAL_PASSWORD");
+  }
+  if (!email || !password) {
+    const error =
+      "ClassDojo credentials not configured (set CLASSDOJO_EMAIL / CLASSDOJO_PASSWORD, or SCHOOL_PORTAL_USERNAME / SCHOOL_PORTAL_PASSWORD)";
+    for (const source of sources) {
+      failures.push({ source, error });
+      console.log(`  FAIL ${source.name}: ${error}`);
+    }
+    return { fetched, failures };
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext();
+    await loginToClassDojo(context, { email, password });
+
+    // The browser is only needed to obtain a session; the data comes from the
+    // app's own JSON APIs, which the authenticated cookies give access to. That
+    // avoids waiting on SPA rendering and yields exact dates instead of
+    // "15 minutes ago" text.
+    for (const source of sources) {
+      try {
+        const pageUrl = resolveUrl(source);
+        const apiUrl = `https://home.classdojo.com${classDojoApiPath(pageUrl)}`;
+        const response = await context.request.get(apiUrl, { timeout: 60_000 });
+        if (!response.ok()) {
+          throw new Error(`${apiUrl} returned ${response.status()}`);
+        }
+        const text = await response.text();
+        const count = (JSON.parse(text) as { _items?: unknown[] })._items?.length ?? 0;
+        fetched.push({ source, text, fetchedAt: new Date().toISOString() });
+        console.log(`  OK   ${source.name} (${count} item(s) from the API)`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        failures.push({ source, error: message });
+        console.log(`  FAIL ${source.name}: ${message}`);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+
+  return { fetched, failures };
+}
+
+/**
+ * Reads a public Google Doc through its plain-text export endpoint. Link-shared
+ * docs need no credentials, so this works on a CI runner with no browser.
+ */
+async function fetchGoogleDoc(url: string): Promise<string> {
+  const exportUrl = googleDocExportUrl(url);
+  if (!exportUrl) throw new Error(`not a Google Docs URL: ${url}`);
+  const response = await fetch(exportUrl, { redirect: "follow" });
+  if (!response.ok) {
+    throw new Error(`Google Doc export returned ${response.status} (is it link-shared?)`);
+  }
+  // Strip the UTF-8 BOM the export endpoint prepends.
+  return (await response.text()).replace(/^﻿/, "").trim();
+}
+
+async function fetchGoogleDocSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
+  const fetched: FetchedSource[] = [];
+  const failures: FetchReport["failures"] = [];
+
+  for (const source of sources) {
+    try {
+      const url = resolveUrl(source);
+      const text = await fetchGoogleDoc(url);
+      fetched.push({ source: { ...source, url }, text, fetchedAt: new Date().toISOString() });
+      console.log(`  OK   ${source.name} (${text.length} chars)`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      failures.push({ source, error: message });
+      console.log(`  FAIL ${source.name}: ${message}`);
+    }
+  }
+  return { fetched, failures };
+}
+
+/**
+ * The weekly newsletter is a *different* Google Doc every week, linked from the
+ * group bulletin board, so the URL cannot be configured once and reused. This
+ * logs into the portal purely to discover the newest newsletter link, then
+ * reads that doc over plain HTTP. The doc URL becomes the source URL, so the
+ * dashboard cites a link parents can actually open.
+ */
+async function fetchNewsletterBoardSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
+  const fetched: FetchedSource[] = [];
+  const failures: FetchReport["failures"] = [];
+  if (sources.length === 0) return { fetched, failures };
+
+  const creds = portalCredentials();
+  if (!creds) {
+    const error =
+      "SCHOOL_PORTAL_LOGIN_URL / SCHOOL_PORTAL_USERNAME / SCHOOL_PORTAL_PASSWORD not configured";
+    for (const source of sources) {
+      failures.push({ source, error });
+      console.log(`  FAIL ${source.name}: ${error}`);
+    }
+    return { fetched, failures };
+  }
+
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const context = await browser.newContext();
+    await loginToPortal(context, creds);
+
+    for (const source of sources) {
+      const page = await context.newPage();
+      try {
+        await page.goto(resolveUrl(source), { waitUntil: "domcontentloaded", timeout: 60_000 });
+        const boardText = await settledText(page);
+        if (looksLoggedOut(boardText)) {
+          throw new Error("bulletin board did not load as an authenticated page");
+        }
+
+        const links: BoardLink[] = await page.$$eval("a[href]", (anchors) =>
+          anchors.map((anchor) => ({
+            title: (anchor.textContent ?? "").trim(),
+            url: anchor.getAttribute("href") ?? "",
+          })),
+        );
+        const pick = pickLatestNewsletter(links, new Date(), source.titlePattern);
+        if (!pick) {
+          throw new Error(
+            `no newsletter link matching /${source.titlePattern ?? "newsletter"}/i found on the board`,
+          );
+        }
+        console.log(`  ..   ${source.name}: newest newsletter is week of ${pick.weekStart}`);
+
+        const text = await fetchGoogleDoc(pick.url);
+        // Label with just the week range: the link text repeats the source name
+        // ("9/21-9/25 Second Grade Newsletter"), which reads badly on a card.
+        const weekLabel =
+          pick.title.match(/(\d{1,2}\/\d{1,2}\s*[-–—]\s*\d{1,2}\/\d{1,2})/)?.[1]?.trim() ??
+          pick.weekStart;
+        fetched.push({
+          // Cite the public doc, not the login-walled board.
+          source: { ...source, url: pick.url, name: `${source.name} (${weekLabel})` },
+          text,
+          fetchedAt: new Date().toISOString(),
+        });
+        console.log(`  OK   ${source.name} (${text.length} chars)`);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         failures.push({ source, error: message });
@@ -189,6 +516,67 @@ function stripHtml(html: string): string {
 // Connects to Gmail via IMAP (app password) once, then runs each gmail
 // source as a mailbox search (optionally filtered by sender + lookback
 // window) in the same connection.
+
+/**
+ * What we keep about one email.
+ *
+ * Deliberately NOT stored: the addresses of anyone else on the message. Only
+ * derived signals are kept, so other parents' addresses never land on disk or in
+ * a committed file. That is the difference between "we redact it later" and "we
+ * never had it".
+ */
+export interface FetchedEmail {
+  subject: string;
+  date: string | null;
+  fromDomain: string;
+  body: string;
+  /** How many addresses were on To + Cc. */
+  recipientCount: number;
+  /** List-Unsubscribe / List-Id / List-Post: a mailing-list broadcast. */
+  hasListHeaders: boolean;
+  /** Precedence: bulk|list, set by mass-mail systems. */
+  bulkPrecedence: boolean;
+  /** To: undisclosed-recipients, used for blind broadcasts. */
+  undisclosedRecipients: boolean;
+}
+
+function addressCount(field: unknown): { count: number } {
+  const groups = Array.isArray(field) ? field : field ? [field] : [];
+  const addresses: string[] = [];
+  for (const group of groups as Array<{ value?: Array<{ address?: string }> }>) {
+    for (const entry of group.value ?? []) {
+      if (entry.address) addresses.push(entry.address.toLowerCase());
+    }
+  }
+  return { count: addresses.length };
+}
+
+/** Reduces a parsed email to the signals the broadcast filter needs. */
+function describeEmail(
+  parsed: import("mailparser").ParsedMail,
+  body: string,
+): FetchedEmail {
+  const header = (name: string) => String(parsed.headers.get(name) ?? "");
+  const toField = addressCount(parsed.to);
+  const ccField = addressCount(parsed.cc);
+  const rawToHeader = header("to").toLowerCase();
+
+  return {
+    subject: parsed.subject ?? "(no subject)",
+    date: parsed.date?.toISOString() ?? null,
+    fromDomain: (parsed.from?.value?.[0]?.address ?? "").split("@")[1]?.toLowerCase() ?? "",
+    body,
+    recipientCount: toField.count + ccField.count,
+    hasListHeaders: Boolean(
+      parsed.headers.get("list-unsubscribe") ||
+        parsed.headers.get("list-id") ||
+        parsed.headers.get("list-post"),
+    ),
+    bulkPrecedence: /\b(?:bulk|list|junk)\b/i.test(header("precedence")),
+    undisclosedRecipients: rawToHeader.includes("undisclosed-recipients"),
+  };
+}
+
 async function fetchGmailSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
   const fetched: FetchedSource[] = [];
   const failures: FetchReport["failures"] = [];
@@ -228,21 +616,21 @@ async function fetchGmailSources(sources: SourceConfigEntry[]): Promise<FetchRep
           const filterFrom = resolveFilterFrom(source);
           if (filterFrom) searchCriteria.from = filterFrom;
 
-          const uids = (await client.search(searchCriteria, { uid: true })) || [];
-          const messageTexts: string[] = [];
+          // IMAP returns UIDs oldest-first. Reverse to newest-first so the most
+          // recent mail is what survives any downstream cap.
+          const uids = ((await client.search(searchCriteria, { uid: true })) || []).slice().reverse();
+          const messages: FetchedEmail[] = [];
           for (const uid of uids) {
             const message = await client.fetchOne(uid, { source: true }, { uid: true });
             if (!message || !message.source) continue;
             const parsed = await simpleParser(message.source);
             const body = parsed.text ?? (parsed.html ? stripHtml(parsed.html) : "");
-            messageTexts.push(
-              `Subject: ${parsed.subject ?? "(no subject)"}\nDate: ${parsed.date?.toISOString() ?? "unknown"}\n\n${body}`,
-            );
+            messages.push(describeEmail(parsed, body));
           }
 
           fetched.push({
             source,
-            text: messageTexts.join("\n\n---\n\n"),
+            text: JSON.stringify({ messages }, null, 2),
             fetchedAt: new Date().toISOString(),
           });
           console.log(`  OK   ${source.name} (${uids.length} email(s))`);
@@ -264,27 +652,41 @@ async function fetchGmailSources(sources: SourceConfigEntry[]): Promise<FetchRep
 
 export async function fetchAllSources(): Promise<FetchReport> {
   const config = await loadSourcesConfig();
-  const enabledSources = config.sources.filter((s) => s.enabled);
+  const allEnabled = config.sources.filter((source) => source.enabled);
 
-  const websiteSources = enabledSources.filter((s) => s.type === "website" || s.type === "calendar");
-  const pdfSources = enabledSources.filter((s) => s.type === "pdf");
-  const portalSources = enabledSources.filter((s) => s.type === "school_portal");
-  const gmailSources = enabledSources.filter((s) => s.type === "gmail");
+  // Sources needing an interactive login (new-device email codes, MFA) can't
+  // run unattended. Skipping rather than failing keeps the scheduled run green
+  // and still publishes whatever the CI-safe sources produced.
+  const inCi = Boolean(process.env.CI);
+  const skippedForCi = inCi ? allEnabled.filter((source) => source.localOnly) : [];
+  const enabledSources = inCi ? allEnabled.filter((source) => !source.localOnly) : allEnabled;
 
-  console.log(`Fetching sources...`);
+  const websiteSources = enabledSources.filter((source) => source.type === "website" || source.type === "calendar");
+  const pdfSources = enabledSources.filter((source) => source.type === "pdf");
+  const portalSources = enabledSources.filter((source) => source.type === "school_portal");
+  const gmailSources = enabledSources.filter((source) => source.type === "gmail");
+  const googleDocSources = enabledSources.filter((source) => source.type === "google_doc");
+  const newsletterSources = enabledSources.filter((source) => source.type === "newsletter_board");
+  const classDojoSources = enabledSources.filter((source) => source.type === "classdojo");
 
   const results = await Promise.all([
     fetchWebsiteSources(websiteSources),
     fetchSchoolPortalSources(portalSources),
     fetchGmailSources(gmailSources),
+    fetchGoogleDocSources(googleDocSources),
+    fetchNewsletterBoardSources(newsletterSources),
+    fetchClassDojoSources(classDojoSources),
   ]);
 
   for (const source of pdfSources) {
     console.log(`  SKIP ${source.name} (PDF sources are not fetched by the browser step)`);
   }
+  for (const source of skippedForCi) {
+    console.log(`  SKIP ${source.name} (localOnly: needs an interactive login, not available in CI)`);
+  }
 
-  const fetched = results.flatMap((r) => r.fetched);
-  const failures = results.flatMap((r) => r.failures);
+  const fetched = results.flatMap((report) => report.fetched);
+  const failures = results.flatMap((report) => report.failures);
 
   await mkdir(RAW_OUTPUT_DIR, { recursive: true });
   for (const item of fetched) {
@@ -296,6 +698,9 @@ export async function fetchAllSources(): Promise<FetchReport> {
 }
 
 async function main() {
+  // Printed by the orchestrator during a full pipeline run; repeated here so the
+  // standalone `npm run fetch-sources` output still has its header.
+  console.log("Fetching sources...");
   const report = await fetchAllSources();
   console.log(`Fetched ${report.fetched.length} source(s), ${report.failures.length} failure(s).`);
 

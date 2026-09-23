@@ -1,0 +1,103 @@
+{
+  "messages": [
+    {
+      "subject": "Next Week: 9/21-9/25",
+      "date": "2026-09-18T14:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "Happy Friday, Wonderful Families! Please view the newsletter each week to see what is coming up. Scholars write down their homework each Monday.\n\n--\nMrs. Example\nThis email and any attachments are confidential and intended solely for the addressee.",
+      "recipientCount": 0,
+      "soleRecipientIsMe": false,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "Extended Care Location Change For Today",
+      "date": "2026-09-14T13:00:00.000Z",
+      "fromDomain": "mass.example-mail.com",
+      "body": "Extended Care will meet in the gym today instead of the cafeteria.",
+      "recipientCount": 1,
+      "soleRecipientIsMe": true,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "Inside the Spark | School Newsletter",
+      "date": "2026-09-17T12:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "We want to support your child's growth this year. The field trip fee is $10 and the PTA fundraiser continues.\n\nCONFIDENTIALITY NOTICE: this message is intended only for the named recipient.",
+      "recipientCount": 1,
+      "soleRecipientIsMe": true,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "Re: Missing math homework",
+      "date": "2026-09-16T12:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "Thanks for following up about the worksheet due Friday.",
+      "recipientCount": 1,
+      "soleRecipientIsMe": true,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "Childname's Q1 Conference Invite",
+      "date": "2026-09-15T12:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "Your conference slot is Tuesday at 2pm.",
+      "recipientCount": 2,
+      "soleRecipientIsMe": false,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "September tuition statement",
+      "date": "2026-09-12T12:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "Your balance is shown below. Amount due 9/30.",
+      "recipientCount": 0,
+      "soleRecipientIsMe": false,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "Payment reminder",
+      "date": "2026-09-11T12:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "Invoice number 4471 is past due. Field trip on Friday 9/25.",
+      "recipientCount": 0,
+      "soleRecipientIsMe": false,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "Weekend plans",
+      "date": "2026-09-10T12:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "Hope everyone had a restful break.",
+      "recipientCount": 0,
+      "soleRecipientIsMe": false,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    },
+    {
+      "subject": "PTA meeting Thursday",
+      "date": "2026-09-09T12:00:00.000Z",
+      "fromDomain": "example-school.net",
+      "body": "All families welcome on Thursday 9/10.",
+      "recipientCount": 12,
+      "soleRecipientIsMe": false,
+      "hasListHeaders": false,
+      "bulkPrecedence": false,
+      "undisclosedRecipients": false
+    }
+  ]
+}

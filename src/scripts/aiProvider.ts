@@ -29,13 +29,41 @@ function timeoutMs(): number {
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504, 529]);
 const MAX_ATTEMPTS = 3;
 
+/** Never wait longer than this on a server hint, so a job can't hang for hours. */
+const MAX_RETRY_WAIT_MS = 90_000;
+
 class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    /** Server-advised wait before retrying, if it told us one. */
+    public retryAfterMs?: number,
   ) {
     super(message);
   }
+}
+
+/**
+ * Extracts a retry delay the provider explicitly asked for. Rate-limited
+ * providers usually say exactly how long to wait, and guessing instead is why a
+ * "retry in 8.9s" response used to fail after ~3s of blind backoff.
+ *
+ * Handles the standard `Retry-After` header (seconds or HTTP date) plus
+ * Gemini's `RetryInfo.retryDelay` / "Please retry in 8.92s" body forms.
+ */
+export function parseRetryDelayMs(headers: Headers, body: string): number | undefined {
+  const header = headers.get("retry-after");
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    const date = Date.parse(header);
+    if (Number.isFinite(date)) return Math.max(0, date - Date.now());
+  }
+  const retryInfo = body.match(/"retryDelay"\s*:\s*"([\d.]+)s"/);
+  if (retryInfo) return Math.ceil(Number(retryInfo[1]) * 1000);
+  const prose = body.match(/retry in ([\d.]+)\s*s/i);
+  if (prose) return Math.ceil(Number(prose[1]) * 1000);
+  return undefined;
 }
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -45,9 +73,13 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
     } catch (err) {
       const retryable = err instanceof ApiError && RETRYABLE_STATUS.has(err.status);
       if (!retryable || attempt === MAX_ATTEMPTS) throw err;
-      const delayMs = 1000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250);
+      const backoffMs = 1000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 250);
+      // Respect the provider's own figure when it exceeds our backoff; retrying
+      // sooner than asked just burns the remaining attempts on the same error.
+      const delayMs = Math.min(Math.max(backoffMs, err.retryAfterMs ?? 0), MAX_RETRY_WAIT_MS);
+      const hint = err.retryAfterMs ? ` (server asked for ${err.retryAfterMs}ms)` : "";
       console.log(
-        `  AI request failed (${err.status}), retrying in ${delayMs}ms (attempt ${attempt + 1}/${MAX_ATTEMPTS})...`,
+        `  AI request failed (${err.status}), retrying in ${delayMs}ms${hint} (attempt ${attempt + 1}/${MAX_ATTEMPTS})...`,
       );
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
@@ -82,7 +114,11 @@ class AnthropicProvider implements AiProvider {
 
         if (!response.ok) {
           const body = await response.text();
-          throw new ApiError(`Anthropic API error ${response.status}: ${body}`, response.status);
+          throw new ApiError(
+            `Anthropic API error ${response.status}: ${body}`,
+            response.status,
+            parseRetryDelayMs(response.headers, body),
+          );
         }
 
         const data = (await response.json()) as {
@@ -128,7 +164,11 @@ class OpenAiProvider implements AiProvider {
 
         if (!response.ok) {
           const body = await response.text();
-          throw new ApiError(`OpenAI API error ${response.status}: ${body}`, response.status);
+          throw new ApiError(
+            `OpenAI API error ${response.status}: ${body}`,
+            response.status,
+            parseRetryDelayMs(response.headers, body),
+          );
         }
 
         const data = (await response.json()) as {
@@ -171,13 +211,17 @@ class GeminiProvider implements AiProvider {
 
         if (!response.ok) {
           const body = await response.text();
-          throw new ApiError(`Gemini API error ${response.status}: ${body}`, response.status);
+          throw new ApiError(
+            `Gemini API error ${response.status}: ${body}`,
+            response.status,
+            parseRetryDelayMs(response.headers, body),
+          );
         }
 
         const data = (await response.json()) as {
           candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
         };
-        const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("");
+        const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("");
         if (!text) {
           throw new Error("Gemini response contained no text content");
         }

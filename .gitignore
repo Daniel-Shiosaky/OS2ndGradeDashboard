@@ -35,4 +35,5 @@ Thumbs.db
 output/raw/
 data/pending-review.json
 
-/docs/*
+# NOTE: no /docs/* rule here. git uses core.ignorecase=true on macOS, so it also
+# matched the tracked Docs/ folder holding the product spec.

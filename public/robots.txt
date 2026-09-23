@@ -1,0 +1,7 @@
+# The dashboard is shared by link with one class's parents. GitHub Pages sites
+# are publicly reachable, so this asks crawlers to stay out. It is a request that
+# well-behaved crawlers honour, not access control — keep personal information
+# out of the published data regardless (see the privacy rules in
+# src/scripts/processWithAi.ts).
+User-agent: *
+Disallow: /
