@@ -8,7 +8,7 @@
       "urlEnv": "SCHOOL_PORTAL_BULLETIN_URL",
       "titlePattern": "Second Grade Newsletter",
       "enabled": true,
-      "localOnly": true,
+      "localOnly": false,
       "priority": 1,
       "lane": "newsletter",
       "role": "2nd grade newsletter"
@@ -18,7 +18,7 @@
       "type": "classdojo",
       "url": "https://home.classdojo.com/#/events",
       "enabled": true,
-      "localOnly": true,
+      "localOnly": false,
       "priority": 3,
       "lane": "classdojo",
       "role": "ClassDojo"
@@ -28,7 +28,7 @@
       "type": "classdojo",
       "url": "https://home.classdojo.com/#/story",
       "enabled": true,
-      "localOnly": true,
+      "localOnly": false,
       "priority": 4,
       "lane": "classdojo",
       "role": "ClassDojo"

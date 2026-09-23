@@ -31,11 +31,39 @@ const SOURCES_PATH = path.join(DATA_DIR, "sources.json");
 const PENDING_PATH = path.join(DATA_DIR, "pending-review.json");
 const WHATSAPP_PATH = path.join(OUTPUT_DIR, "whatsapp-message.txt");
 
+/**
+ * Previous state, used to merge rather than replace.
+ *
+ * data/events.json is gitignored, so a CI runner starts with no local copy. It
+ * falls back to the published site, which IS the previous state. Without that,
+ * every scheduled run would republish only what CI can fetch — and the
+ * Newsletter and ClassDojo sources are localOnly, so both lanes would vanish
+ * from the dashboard each week.
+ */
 async function loadExistingEvents(): Promise<EventsData | null> {
   try {
     const raw = await readFile(EVENTS_PATH, "utf-8");
     return EventsDataSchema.parse(JSON.parse(raw));
   } catch {
+    return loadPublishedEvents();
+  }
+}
+
+async function loadPublishedEvents(): Promise<EventsData | null> {
+  const dashboardUrl = process.env.DASHBOARD_URL;
+  if (!dashboardUrl) return null;
+  const url = `${dashboardUrl.replace(/\/$/, "")}/data/events.json`;
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) {
+      console.log(`  ..   No previous data at ${url} (${response.status}); starting fresh.`);
+      return null;
+    }
+    const data = EventsDataSchema.parse(await response.json());
+    console.log(`  ..   Recovered ${data.events.length} previous event(s) from the published site.`);
+    return data;
+  } catch {
+    console.log(`  ..   Could not read previous data from ${url}; starting fresh.`);
     return null;
   }
 }

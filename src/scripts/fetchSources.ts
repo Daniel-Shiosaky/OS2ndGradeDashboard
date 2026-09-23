@@ -20,7 +20,12 @@ import { chromium } from "playwright";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { SourcesConfigSchema, type SourceConfigEntry } from "../types/schema.js";
-import { googleDocExportUrl, pickLatestNewsletter, type BoardLink } from "../shared/newsletter.js";
+import {
+  findNewsletterLinksInText,
+  googleDocExportUrl,
+  pickLatestNewsletter,
+  type BoardLink,
+} from "../shared/newsletter.js";
 import { classDojoApiPath } from "../shared/parseClassDojo.js";
 import { slugify } from "../shared/text.js";
 import { isMainModule } from "./runGuard.js";
@@ -391,6 +396,49 @@ async function fetchClassDojoSources(sources: SourceConfigEntry[]): Promise<Fetc
   return { fetched, failures };
 }
 
+/** Newsletter discovery without the portal: scan what other sources returned. */
+async function fetchNewsletterFromDiscoveredLinks(
+  sources: SourceConfigEntry[],
+  alreadyFetched: FetchedSource[],
+): Promise<FetchReport> {
+  const fetched: FetchedSource[] = [];
+  const failures: FetchReport["failures"] = [];
+  const haystack = alreadyFetched.map((item) => item.text).join("\n");
+  const links = findNewsletterLinksInText(haystack);
+
+  for (const source of sources) {
+    try {
+      const pick = pickLatestNewsletter(links, new Date(), "newsletter");
+      if (!pick) {
+        throw new Error(
+          "no newsletter link found in the other sources (portal login unavailable)",
+        );
+      }
+      console.log(`  ..   ${source.name}: found week of ${pick.weekStart} in another source`);
+      const text = await fetchGoogleDoc(pick.url);
+      fetched.push({
+        source: { ...source, url: pick.url, name: `${source.name} (${weekLabelFor(pick)})` },
+        text,
+        fetchedAt: new Date().toISOString(),
+      });
+      console.log(`  OK   ${source.name} (${text.length} chars)`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      failures.push({ source, error: message });
+      console.log(`  FAIL ${source.name}: ${message}`);
+    }
+  }
+  return { fetched, failures };
+}
+
+/** Week range from a link's title, e.g. "9/21-9/25"; falls back to the date. */
+function weekLabelFor(pick: { title: string; weekStart: string }): string {
+  return (
+    pick.title.match(/(\d{1,2}\/\d{1,2}\s*[-–—]\s*\d{1,2}\/\d{1,2})/)?.[1]?.trim() ??
+    pick.weekStart
+  );
+}
+
 /**
  * Reads a public Google Doc through its plain-text export endpoint. Link-shared
  * docs need no credentials, so this works on a CI runner with no browser.
@@ -432,20 +480,30 @@ async function fetchGoogleDocSources(sources: SourceConfigEntry[]): Promise<Fetc
  * reads that doc over plain HTTP. The doc URL becomes the source URL, so the
  * dashboard cites a link parents can actually open.
  */
-async function fetchNewsletterBoardSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
+/**
+ * Builds the Newsletter lane. Discovery has two paths, content has one.
+ *
+ * The doc itself is always read over plain HTTP — it is link-shared. Only finding
+ * *which* doc is this week's needs a source:
+ *
+ *   1. The group bulletin board, via a portal login. Authoritative, has the full
+ *      archive, but the login can demand a human (emailed device code).
+ *   2. Otherwise, links already present in whatever else was fetched. The
+ *      teachers paste the week's doc into their weekly email and repost it to the
+ *      ClassDojo story, and those sources run unattended — so this is the path
+ *      that lets the lane work in CI.
+ */
+async function fetchNewsletterBoardSources(
+  sources: SourceConfigEntry[],
+  alreadyFetched: FetchedSource[],
+): Promise<FetchReport> {
   const fetched: FetchedSource[] = [];
   const failures: FetchReport["failures"] = [];
   if (sources.length === 0) return { fetched, failures };
 
   const creds = portalCredentials();
   if (!creds) {
-    const error =
-      "SCHOOL_PORTAL_LOGIN_URL / SCHOOL_PORTAL_USERNAME / SCHOOL_PORTAL_PASSWORD not configured";
-    for (const source of sources) {
-      failures.push({ source, error });
-      console.log(`  FAIL ${source.name}: ${error}`);
-    }
-    return { fetched, failures };
+    return fetchNewsletterFromDiscoveredLinks(sources, alreadyFetched);
   }
 
   const browser = await chromium.launch({ headless: true });
@@ -479,9 +537,7 @@ async function fetchNewsletterBoardSources(sources: SourceConfigEntry[]): Promis
         const text = await fetchGoogleDoc(pick.url);
         // Label with just the week range: the link text repeats the source name
         // ("9/21-9/25 Second Grade Newsletter"), which reads badly on a card.
-        const weekLabel =
-          pick.title.match(/(\d{1,2}\/\d{1,2}\s*[-–—]\s*\d{1,2}\/\d{1,2})/)?.[1]?.trim() ??
-          pick.weekStart;
+        const weekLabel = weekLabelFor(pick);
         fetched.push({
           // Cite the public doc, not the login-walled board.
           source: { ...source, url: pick.url, name: `${source.name} (${weekLabel})` },
@@ -669,14 +725,17 @@ export async function fetchAllSources(): Promise<FetchReport> {
   const newsletterSources = enabledSources.filter((source) => source.type === "newsletter_board");
   const classDojoSources = enabledSources.filter((source) => source.type === "classdojo");
 
+  // Newsletter discovery can fall back to scanning these, so they run first.
   const results = await Promise.all([
     fetchWebsiteSources(websiteSources),
     fetchSchoolPortalSources(portalSources),
     fetchGmailSources(gmailSources),
     fetchGoogleDocSources(googleDocSources),
-    fetchNewsletterBoardSources(newsletterSources),
     fetchClassDojoSources(classDojoSources),
   ]);
+  results.push(
+    await fetchNewsletterBoardSources(newsletterSources, results.flatMap((report) => report.fetched)),
+  );
 
   for (const source of pdfSources) {
     console.log(`  SKIP ${source.name} (PDF sources are not fetched by the browser step)`);

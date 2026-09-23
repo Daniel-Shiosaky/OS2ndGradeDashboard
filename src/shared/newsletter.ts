@@ -64,6 +64,27 @@ export function resolveMonthDay(month: number, day: number, today: Date): string
 }
 
 /**
+ * Finds newsletter links inside arbitrary fetched text.
+ *
+ * The teachers put the week's doc link in their weekly email, and it is reposted
+ * to the ClassDojo story. Both of those sources work unattended, so scanning
+ * them means the Newsletter lane can be built in CI without the portal login
+ * that requires a human. The text preceding each link becomes its title, which
+ * is where the week range lives ("9/21-9/25 2nd Grade Newsletter").
+ */
+export function findNewsletterLinksInText(text: string): BoardLink[] {
+  const links: BoardLink[] = [];
+  const pattern = /https?:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]{20,}[^\s"'\\)]*/g;
+  for (const match of text.matchAll(pattern)) {
+    const start = Math.max(0, (match.index ?? 0) - 160);
+    // JSON-escaped newlines survive in the raw payloads; treat them as breaks.
+    const context = text.slice(start, match.index).replace(/\\+n|\\+r/g, " ");
+    links.push({ title: context, url: match[0] });
+  }
+  return links;
+}
+
+/**
  * Picks the most recent newsletter from the links scraped off the bulletin
  * board. Board DOM order is not trusted — the week in the title decides.
  */

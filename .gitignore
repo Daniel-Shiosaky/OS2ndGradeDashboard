@@ -31,8 +31,14 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-# Generated pipeline artifacts (raw fetched content, not source-controlled)
-output/raw/
+# Generated pipeline artifacts — never source-controlled.
+# data/events.json carries the bodies of real school emails (scheduling links,
+# addresses, quoted threads). It is published to the Pages site, which is a
+# week's snapshot, but committing it would put that content in permanent public
+# git history. CI recovers the previous state from the live site instead; see
+# loadExistingEvents in generateDashboard.ts.
+output/
+data/events.json
 data/pending-review.json
 
 # NOTE: no /docs/* rule here. git uses core.ignorecase=true on macOS, so it also

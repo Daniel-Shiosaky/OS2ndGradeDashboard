@@ -8,7 +8,8 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  # read-only: generated data is no longer committed back to the repo.
+  contents: read
   pages: write
   id-token: write
 
@@ -59,6 +60,8 @@ jobs:
           AI_MODEL: ${{ secrets.AI_MODEL }}
           AI_TIMEOUT_MS: ${{ secrets.AI_TIMEOUT_MS }}
           DASHBOARD_URL: ${{ vars.DASHBOARD_URL }}
+          CLASSDOJO_EMAIL: ${{ secrets.CLASSDOJO_EMAIL }}
+          CLASSDOJO_PASSWORD: ${{ secrets.CLASSDOJO_PASSWORD }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           # Referenced indirectly via filterFromEnv in data/sources.json so real
@@ -72,9 +75,10 @@ jobs:
           # broadcast. Both must be set as secrets for a scheduled run.
           REDACT_NAMES: ${{ secrets.REDACT_NAMES }}
           MAIL_BULK_DOMAINS: ${{ secrets.MAIL_BULK_DOMAINS }}
-          # No SCHOOL_PORTAL_* or CLASSDOJO_* here on purpose: those sources are
-          # localOnly and skipped in CI, so passing their credentials to the
-          # runner would be exposure with no purpose.
+          # DASHBOARD_URL doubles as the recovery source for previous state, since
+          # data/events.json is no longer committed. No SCHOOL_PORTAL_* here: the
+          # portal login can demand a human, so the Newsletter lane discovers the
+          # week's doc from the other sources instead.
         run: npm run pipeline
 
       # Gates both paths: on success this re-checks what the pipeline just
@@ -83,19 +87,6 @@ jobs:
       # so the existing deployment stays live (brief section 24).
       - name: Validate publishable data
         run: npm run validate-data
-
-      - name: Commit updated data if changed
-        if: steps.pipeline.outcome == 'success'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/events.json output/whatsapp-message.txt
-          if git diff --cached --quiet; then
-            echo "No data changes to commit."
-          else
-            git commit -m "chore: update dashboard data [skip ci]"
-            git push
-          fi
 
       # The frontend fetches "data/events.json" relative to index.html, so
       # the published Pages site needs a copy of the current data alongside
