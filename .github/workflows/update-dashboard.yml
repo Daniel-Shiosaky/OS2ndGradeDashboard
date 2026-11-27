@@ -14,7 +14,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: "update-dashboard"
   cancel-in-progress: false
 
 jobs:
