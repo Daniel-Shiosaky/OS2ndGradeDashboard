@@ -179,6 +179,7 @@ function portalCredentials() {
 async function loginToPortal(
   context: import("playwright").BrowserContext,
   creds: { loginUrl: string; username: string; password: string },
+  { interactive = false }: { interactive?: boolean } = {},
 ): Promise<void> {
   const page = await context.newPage();
   try {
@@ -197,7 +198,9 @@ async function loginToPortal(
 
     const idFrame = page.frameLocator('iframe[src*="id.blackbaud.com"]');
     const passwordBox = idFrame.locator("#password");
-    await passwordBox.waitFor({ state: "visible", timeout: 60_000 });
+    // Interactive runs may be sitting on the emailed-code prompt first, which a
+    // person has to type in, so give them minutes rather than a minute.
+    await passwordBox.waitFor({ state: "visible", timeout: interactive ? 300_000 : 60_000 });
     await passwordBox.fill(creds.password);
     await idFrame.getByRole("button", { name: /^sign in$/i }).click();
 
@@ -208,9 +211,57 @@ async function loginToPortal(
   }
 }
 
+/**
+ * Where the portal browser profile lives (cookies, "remembered device" state).
+ * Under output/, so it is gitignored — it holds a live session.
+ *
+ * Why a persistent profile: a fresh headless browser looks like a brand-new
+ * device on every run, so the portal demanded the emailed 6-digit code every
+ * time and the unattended run could never get past it. Typing the code once in
+ * `npm run portal-login` lets the profile be remembered afterwards.
+ */
+export const PORTAL_PROFILE_DIR = path.resolve(import.meta.dirname, "../../output/browser-profile");
+
+export async function launchPortalContext(
+  { headless = true }: { headless?: boolean } = {},
+): Promise<import("playwright").BrowserContext> {
+  return chromium.launchPersistentContext(PORTAL_PROFILE_DIR, { headless });
+}
+
+/** Logs in only when the saved profile is no longer signed in to `probeUrl`. */
+export async function ensurePortalSession(
+  context: import("playwright").BrowserContext,
+  creds: { loginUrl: string; username: string; password: string },
+  probeUrl: string,
+  options: { interactive?: boolean } = {},
+): Promise<void> {
+  const page = await context.newPage();
+  try {
+    await page.goto(probeUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    const text = await settledText(page);
+    const onSignInPage = /app\.blackbaud\.com\/signin|#login/.test(page.url());
+    if (!onSignInPage && !looksLoggedOut(text)) {
+      console.log("  ..   Portal session restored from saved profile (no login needed)");
+      return;
+    }
+  } catch {
+    // An unreadable probe page just means we fall through to a real login.
+  } finally {
+    await page.close();
+  }
+  await loginToPortal(context, creds, options);
+}
+
 /** True when the page bounced back to the portal's login screen. */
 function looksLoggedOut(text: string): boolean {
-  return /Blackbaud ID \(Email\)/.test(text) || text.trim().length < 150;
+  // The portal's own form, or the app.blackbaud.com/signin page it redirects to
+  // for a remembered email. The latter has plenty of text, so length alone
+  // wrongly read it as a signed-in page and skipped the login.
+  return (
+    /Blackbaud ID \(Email\)/.test(text) ||
+    /Continue with (Google|Apple)|Sign in with a different email/i.test(text) ||
+    text.trim().length < 150
+  );
 }
 
 async function fetchSchoolPortalSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
@@ -229,14 +280,13 @@ async function fetchSchoolPortalSources(sources: SourceConfigEntry[]): Promise<F
     return { fetched, failures };
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const context = await launchPortalContext();
   try {
-    const context = await browser.newContext();
     // A login failure (wrong password, or an emailed 6-digit code that nobody can
     // answer) must only fail the portal-backed sources, never abort the whole
     // fetch step and discard what the other sources already returned.
     try {
-      await loginToPortal(context, creds);
+      await ensurePortalSession(context, creds, resolveUrl(sources[0]!));
     } catch (err) {
       const message = `portal login failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`;
       for (const source of sources) {
@@ -263,7 +313,7 @@ async function fetchSchoolPortalSources(sources: SourceConfigEntry[]): Promise<F
       }
     }
   } finally {
-    await browser.close();
+    await context.close();
   }
 
   return { fetched, failures };
@@ -518,14 +568,13 @@ async function fetchNewsletterBoardSources(
     return fetchNewsletterFromDiscoveredLinks(sources, alreadyFetched);
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const context = await launchPortalContext();
   try {
-    const context = await browser.newContext();
     // A login failure (wrong password, or an emailed 6-digit code that nobody can
     // answer) must only fail the portal-backed sources, never abort the whole
     // fetch step and discard what the other sources already returned.
     try {
-      await loginToPortal(context, creds);
+      await ensurePortalSession(context, creds, resolveUrl(sources[0]!));
     } catch (err) {
       const message = `portal login failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`;
       for (const source of sources) {
@@ -578,7 +627,7 @@ async function fetchNewsletterBoardSources(
       }
     }
   } finally {
-    await browser.close();
+    await context.close();
   }
 
   return { fetched, failures };
