@@ -161,3 +161,52 @@ describe("parseClassDojo robustness", () => {
     expect(parseClassDojo("#/events", "{}", ZONE).events).toEqual([]);
   });
 });
+
+describe("parseClassDojo — items naming a configured child are withheld whole", () => {
+  it("withholds a calendar event whose title names the child, instead of trimming the name", () => {
+    const payload = JSON.stringify({
+      _items: [
+        { title: "Childname's birthday treat", startDate: "2026-12-04", startDateTime: "2026-12-04T15:00:00.000Z" },
+        { title: "Christmas Shoppe", startDate: "2026-12-09", startDateTime: "2026-12-09T15:00:00.000Z" },
+      ],
+    });
+    const { events, redactedItems } = parseClassDojo("#/events", payload, ZONE, NAMES);
+    expect(events.map((event) => event.title)).toEqual(["Christmas Shoppe"]);
+    expect(redactedItems).toBe(1);
+  });
+
+  it("withholds a calendar event whose description names the child", () => {
+    const payload = JSON.stringify({
+      _items: [
+        {
+          title: "Class party",
+          description: "Childname is bringing the cake",
+          startDate: "2026-12-04",
+          startDateTime: "2026-12-04T15:00:00.000Z",
+        },
+      ],
+    });
+    expect(parseClassDojo("#/events", payload, ZONE, NAMES).events).toEqual([]);
+  });
+
+  it("withholds a school-relevant story post that names the child", () => {
+    const payload = JSON.stringify({
+      _items: [
+        {
+          _id: "named",
+          time: "2026-12-02T15:00:00.000Z",
+          contents: { body: "Childname is student of the week! Please send a picture on Friday." },
+        },
+        {
+          _id: "plain",
+          time: "2026-12-02T16:00:00.000Z",
+          contents: { body: "Please send a picture on Friday for our class book." },
+        },
+      ],
+    });
+    const { events, redactedItems } = parseClassDojo("#/story", payload, ZONE, NAMES);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.title).toContain("class book");
+    expect(redactedItems).toBe(1);
+  });
+});

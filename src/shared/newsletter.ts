@@ -44,8 +44,9 @@ export function parseNewsletterWeekStart(title: string, today: Date): string | n
 
 /**
  * Turns a bare `M/D` into YYYY-MM-DD. The newsletters never print a year, and a
- * school year straddles January, so a date that would land far in the future is
- * read as belonging to the previous calendar year.
+ * school year straddles January, so the year is whichever puts the date within
+ * about six months of `today`: a date far in the future belongs to the previous
+ * calendar year, and one far in the past (a "1/1" read on Dec 28) to the next.
  */
 export function resolveMonthDay(month: number, day: number, today: Date): string | null {
   if (!Number.isInteger(month) || !Number.isInteger(day)) return null;
@@ -56,6 +57,9 @@ export function resolveMonthDay(month: number, day: number, today: Date): string
   const sixMonthsMs = 182 * 24 * 60 * 60 * 1000;
   if (date.getTime() - today.getTime() > sixMonthsMs) {
     year -= 1;
+    date = new Date(Date.UTC(year, month - 1, day));
+  } else if (today.getTime() - date.getTime() > sixMonthsMs) {
+    year += 1;
     date = new Date(Date.UTC(year, month - 1, day));
   }
   // Guard against e.g. 2/30 silently rolling into March.

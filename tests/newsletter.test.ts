@@ -3,6 +3,7 @@ import {
   googleDocExportUrl,
   googleDocId,
   parseNewsletterWeekStart,
+  resolveMonthDay,
   pickLatestNewsletter,
 } from "../src/shared/newsletter.js";
 
@@ -75,5 +76,28 @@ describe("pickLatestNewsletter", () => {
   it("honours a custom title pattern", () => {
     const pick = pickLatestNewsletter(BOARD_LINKS, TODAY, "Second Grade Newsletter");
     expect(pick?.weekStart).toBe("2026-09-21");
+  });
+});
+
+describe("resolveMonthDay — a school year straddles January", () => {
+  it("reads a date far in the future as last calendar year", () => {
+    expect(resolveMonthDay(12, 18, new Date("2027-01-10T12:00:00Z"))).toBe("2026-12-18");
+  });
+
+  it("reads a date far in the past as next calendar year (Jan 1 seen on Dec 28)", () => {
+    // The old rule only corrected the future direction, so this came out as
+    // 2026-01-01 — eleven months ago — and was hidden as a past event.
+    expect(resolveMonthDay(1, 1, new Date("2026-12-28T12:00:00Z"))).toBe("2027-01-01");
+    expect(resolveMonthDay(1, 8, new Date("2026-12-28T12:00:00Z"))).toBe("2027-01-08");
+  });
+
+  it("keeps ordinary nearby dates in the current year, past or future", () => {
+    expect(resolveMonthDay(9, 21, new Date("2026-09-22T12:00:00Z"))).toBe("2026-09-21");
+    expect(resolveMonthDay(9, 25, new Date("2026-09-22T12:00:00Z"))).toBe("2026-09-25");
+    expect(resolveMonthDay(12, 4, new Date("2026-11-27T12:00:00Z"))).toBe("2026-12-04");
+  });
+
+  it("still rejects impossible dates", () => {
+    expect(resolveMonthDay(2, 30, new Date("2026-02-01T12:00:00Z"))).toBeNull();
   });
 });

@@ -189,10 +189,14 @@ It recovers the previous state from the live site via the `DASHBOARD_URL`
 variable. Without it, the newsletter and ClassDojo lanes — which CI skips —
 would vanish on every scheduled run.
 
-**Pages deploys even when the pipeline fails.** The pipeline step is
-`continue-on-error`, the previously published data is validated and staged, and a
-final step still fails the run so it shows red. The `deploy` job uses
-`!cancelled()`, because GitHub otherwise skips a job whose dependency failed.
+**A failed run never replaces a good site with a broken one.** The pipeline step
+is `continue-on-error`, so the validate and stage steps still run, and a final
+step marks the run red. `events.json` is not committed, so if the pipeline fails
+before writing it, validation fails, nothing is staged, and the existing
+deployment stays live. If it got as far as writing valid data (recovered from
+`DASHBOARD_URL` plus whatever sources succeeded), that is staged and deployed.
+The `deploy` job uses `!cancelled()`, because GitHub otherwise skips a job whose
+dependency failed.
 
 Setup on a real repository:
 

@@ -49,10 +49,13 @@ jobs:
 
       - name: Run update pipeline
         id: pipeline
-        # Non-fatal on purpose: a missing AI credential or a broken source must
-        # not stop the previously committed (or sample) data from reaching Pages
-        # — the last valid dashboard should stay available (brief section 23).
-        # The run is still marked failed, by the final step of this job.
+        # Non-fatal on purpose, so the steps below still run after a failure.
+        # data/events.json is gitignored, so a fresh runner has no previous data:
+        # it exists only if this run got as far as writing it (generateDashboard
+        # recovers the previous state from DASHBOARD_URL first). If the pipeline
+        # died earlier, validation below fails, nothing is staged, and the
+        # existing deployment simply stays live. Either way the run is marked
+        # failed by the final step of this job.
         continue-on-error: true
         env:
           AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
@@ -77,14 +80,14 @@ jobs:
           MAIL_BULK_DOMAINS: ${{ secrets.MAIL_BULK_DOMAINS }}
           # DASHBOARD_URL doubles as the recovery source for previous state, since
           # data/events.json is no longer committed. No SCHOOL_PORTAL_* here: the
-          # portal login can demand a human, so the Newsletter lane discovers the
-          # week's doc from the other sources instead.
+          # portal login can demand a human, so the Newsletter and ClassDojo lanes
+          # are not fetched in CI; they are carried over from the published site.
         run: npm run pipeline
 
       # Gates both paths: on success this re-checks what the pipeline just
-      # wrote; on failure it checks the previously committed data before that
-      # gets republished. Failing here stops the job before anything is staged,
-      # so the existing deployment stays live (brief section 24).
+      # wrote; after a failure it checks whatever the pipeline managed to write,
+      # and fails if there is nothing valid. Failing here stops the job before
+      # anything is staged, so the existing deployment stays live.
       - name: Validate publishable data
         run: npm run validate-data
 

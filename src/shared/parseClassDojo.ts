@@ -23,7 +23,7 @@
 // descriptions and post bodies are, and those still go through redact.ts —
 // bodies quote family surnames such as "courtesy of the Testfamily family".
 
-import { mustDropLine, redactPersonalNames } from "./redact.js";
+import { mentionsAnyName, mustDropLine, redactPersonalNames } from "./redact.js";
 import { looksSchoolRelevant } from "./relevance.js";
 import { isoDateInTimeZone } from "./weekRange.js";
 import type { Category, ExtractedEvent } from "../types/schema.js";
@@ -108,6 +108,13 @@ export function parseClassDojoCalendar(
       continue;
     }
 
+    // Withheld whole, as in the email lane: trimming the name from "Childname's
+    // birthday treat" leaves a row that still points at one child.
+    if (mentionsAnyName(rawTitle + "\n" + (item.description ?? ""), extraNames)) {
+      redactedItems++;
+      continue;
+    }
+
     const title = redactPersonalNames(rawTitle, extraNames);
     if (!title) {
       redactedItems++;
@@ -167,6 +174,10 @@ export function parseClassDojoStoryFeed(
       }
       return true;
     });
+    if (mentionsAnyName(keptLines.join("\n"), extraNames)) {
+      redactedItems++;
+      continue;
+    }
     const text = redactPersonalNames(keptLines.join("\n"), extraNames).trim();
     if (!text) continue;
 

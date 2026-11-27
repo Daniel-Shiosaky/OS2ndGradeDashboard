@@ -260,7 +260,10 @@ export async function extractFromSource(
           title: fetched.text.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? fetched.source.name,
           week_label: fetched.source.name.match(/\(([^)]+)\)/)?.[1] ?? "",
           source: { name: fetched.source.name, url: fetched.source.url, lane: "newsletter" },
-          sections,
+          // The outline is not published: the frontend never renders it, and it
+          // carries undated lines (notes, verses) that add to what is public for
+          // no benefit. The dated items reach the dashboard as events.
+          sections: [],
         },
       };
     }
