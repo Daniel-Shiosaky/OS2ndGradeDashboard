@@ -232,7 +232,19 @@ async function fetchSchoolPortalSources(sources: SourceConfigEntry[]): Promise<F
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext();
-    await loginToPortal(context, creds);
+    // A login failure (wrong password, or an emailed 6-digit code that nobody can
+    // answer) must only fail the portal-backed sources, never abort the whole
+    // fetch step and discard what the other sources already returned.
+    try {
+      await loginToPortal(context, creds);
+    } catch (err) {
+      const message = `portal login failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`;
+      for (const source of sources) {
+        failures.push({ source, error: message });
+        console.log(`  FAIL ${source.name}: ${message}`);
+      }
+      return { fetched, failures };
+    }
 
     for (const source of sources) {
       const page = await context.newPage();
@@ -509,7 +521,19 @@ async function fetchNewsletterBoardSources(
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext();
-    await loginToPortal(context, creds);
+    // A login failure (wrong password, or an emailed 6-digit code that nobody can
+    // answer) must only fail the portal-backed sources, never abort the whole
+    // fetch step and discard what the other sources already returned.
+    try {
+      await loginToPortal(context, creds);
+    } catch (err) {
+      const message = `portal login failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`;
+      for (const source of sources) {
+        failures.push({ source, error: message });
+        console.log(`  FAIL ${source.name}: ${message}`);
+      }
+      return { fetched, failures };
+    }
 
     for (const source of sources) {
       const page = await context.newPage();
