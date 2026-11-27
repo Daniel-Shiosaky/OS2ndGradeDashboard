@@ -174,6 +174,47 @@ export function sectionFor(
 }
 
 /**
+ * The weekly newsletter's source name carries its week ("Name (11/30-12/4)"), so
+ * every issue is a differently named source. Returns the shared name without the
+ * week, or null for a source that has no such suffix.
+ */
+function weeklySourceFamily(sourceName: string): string | null {
+  const match = sourceName.match(/^(.*\S)\s+\([^()]+\)$/);
+  return match ? match[1]! : null;
+}
+
+/** Earliest event date this run reported for each weekly-source family. */
+function earliestDatePerWeeklySource(extractions: SourceExtraction[]): Map<string, string> {
+  const earliest = new Map<string, string>();
+  for (const extraction of extractions) {
+    const family = weeklySourceFamily(extraction.source.name);
+    if (!family) continue;
+    for (const candidate of extraction.events) {
+      const current = earliest.get(family);
+      if (current === undefined || candidate.date < current) earliest.set(family, candidate.date);
+    }
+  }
+  return earliest;
+}
+
+/**
+ * True for an event from an older issue of a weekly source whose newer issue
+ * arrived this run. Without this, last month's newsletter events stay in the data
+ * for good, because the merge keeps anything a run did not re-report.
+ *
+ * "Older" is judged by event dates, not by parsing the week label (which has no
+ * year): an event is superseded only if it falls before everything the new issue
+ * reports. If a fetch fell back to an old issue while a newer one is stored, the
+ * stored events are later than the fallback's and are kept.
+ */
+function isSupersededWeeklyEvent(event: SchoolEvent, earliestDateByFamily: Map<string, string>): boolean {
+  const family = weeklySourceFamily(event.source.name);
+  if (!family) return false;
+  const earliestNew = earliestDateByFamily.get(family);
+  return earliestNew !== undefined && event.date < earliestNew;
+}
+
+/**
  * Merges freshly extracted events with the existing dataset. Events are
  * matched by (normalized title, source name) to detect updates rather than
  * duplicating them. When two *different* sources report the same normalized
@@ -288,10 +329,14 @@ export function mergeEvents(
   // Anything in the existing dataset not present in this run is kept as-is
   // (a source being temporarily unavailable must not delete valid data),
   // unless the new merge already produced an event under the same id.
+  const earliestDateByFamily = earliestDatePerWeeklySource(extractions);
   for (const event of existing) {
-    if (!seenIds.has(event.id)) {
-      merged.push(event);
+    if (seenIds.has(event.id)) continue;
+    if (isSupersededWeeklyEvent(event, earliestDateByFamily)) {
+      changes.push({ type: "removed", event });
+      continue;
     }
+    merged.push(event);
   }
 
   merged.sort(
@@ -341,7 +386,8 @@ export async function generateDashboard(
   const changedCount = changes.filter((change) => change.type === "changed").length;
   console.log(`New events: ${newCount}`);
   console.log(`Changed events: ${changedCount}`);
-  console.log(`Removed events: 0`);
+  const removedCount = changes.filter((change) => change.type === "removed").length;
+  console.log(`Removed events: ${removedCount}`);
   for (const change of changes.filter((change) => change.type === "changed")) {
     console.log(`CHANGED:\n${change.event.title}\n${change.previous?.date} -> ${change.event.date}\nSource: ${change.event.source.name}`);
   }
