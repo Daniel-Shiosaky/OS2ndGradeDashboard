@@ -1,23 +1,51 @@
+/* Concept B — "Three Lanes". One lane per source so parents always know where
+   to look. Tokens below are the brief's values; no drop shadows anywhere. */
+
 :root {
-  --color-bg: #f6f7fb;
-  --color-surface: #ffffff;
-  --color-text: #1a1d29;
-  --color-text-muted: #6b7080;
-  --color-border: #e4e6ef;
-  --color-accent: #3457d5;
-  --color-high: #d64545;
-  --color-high-bg: #fdecec;
-  --color-medium: #b8860b;
-  --color-medium-bg: #fdf6e3;
-  --color-low: #4a7c59;
-  --color-low-bg: #eef6ef;
-  --radius: 12px;
-  --shadow: 0 1px 3px rgba(26, 29, 41, 0.08);
+  --bg: #e9eef3;
+  --panel: #ffffff;
+  --text: #1c2a3a;
+  --text-2: #4f5e6e;
+  --line: #d3dce5;
+  --unread: #2266dd;
+
+  --newsletter: #0f7b6c;
+  --classdojo: #6b4fbb;
+  --email: #b8521a;
+
+  --newsletter-tint: #ddf2ee;
+  --classdojo-tint: #ece6fa;
+  --email-tint: #fbe8dc;
+
+  --flag: #f2c230;
+  --flag-text: #5a4300;
+
+  --radius-lane: 16px;
+  --radius-segment: 12px;
+
+  --font-heading: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
   color-scheme: light;
 }
 
 * {
   box-sizing: border-box;
+}
+
+/*
+ * Must come before any rule that sets `display`.
+ *
+ * The browser hides [hidden] elements with a user-agent rule, which ANY author
+ * `display` declaration outranks. That silently broke two things: the detail
+ * dialog's "Open the original" link (`display: inline-block`) stayed on screen
+ * for email items, which have no original to open, showing a dead link; and the
+ * three lanes (`display: grid`) stayed behind the search results. Toggling
+ * `.hidden` in JS looked correct in both cases — the attribute was set, the
+ * element just kept rendering.
+ */
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -27,10 +55,21 @@ body {
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  line-height: 1.4;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+h1,
+h2,
+h3,
+.lane__title,
+.segment__label {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
 .visually-hidden {
@@ -42,191 +81,542 @@ body {
   white-space: nowrap;
 }
 
+:focus-visible {
+  outline: 3px solid var(--unread);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* --- Header --- */
+
 .site-header {
-  padding: 20px 16px 12px;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.site-header__inner,
+.toolbar,
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.site-header__inner {
+  padding-top: 22px;
+  padding-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Deliberately small: the header is a wayfinding strip, not a masthead, and on a
+   phone every vertical pixel here pushes the week's items further down. Scaled to
+   the height of the title plus its subtitle so it reads as a pair with them. */
+.site-header__logo {
+  flex: none;
+  height: 46px;
+  width: auto;
+}
+
+.site-header__text {
+  min-width: 0;
 }
 
 .site-header h1 {
   margin: 0;
-  font-size: 1.4rem;
+  font-size: 1.9rem;
 }
 
-.last-updated {
-  margin: 4px 0 0;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
+.site-header__subtitle {
+  margin: 6px 0 0;
+  color: var(--text-2);
+  font-size: 0.95rem;
+}
+
+.toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-top: 18px;
 }
 
 .search-bar {
-  padding: 12px 16px;
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  flex: 1;
 }
 
 .search-bar input {
   width: 100%;
-  padding: 10px 14px;
-  font-size: 1rem;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: var(--color-bg);
-  color: var(--color-text);
-}
-
-.search-bar input:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 1px;
+  padding: 11px 14px;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-segment);
 }
 
 .app-error {
-  margin: 16px;
+  max-width: 1200px;
+  margin: 16px auto 0;
   padding: 12px 16px;
-  background: var(--color-high-bg);
-  color: var(--color-high);
-  border-radius: var(--radius);
+  background: var(--flag);
+  color: var(--flag-text);
+  border-radius: var(--radius-segment);
+  font-weight: 700;
 }
 
 main {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 0 16px 40px;
+  padding-top: 18px;
+  padding-bottom: 48px;
 }
 
-section {
-  margin-top: 24px;
+/* --- Lanes: three equal columns on desktop --- */
+
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
 }
 
-section h2 {
-  font-size: 1.05rem;
-  margin: 0 0 4px;
-}
-
-.section-subtitle {
-  margin: 0 0 12px;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-}
-
-.card-list {
+.lane {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lane);
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.lane__header {
+  display: flex;
+  align-items: flex-start;
   gap: 10px;
-  margin-top: 10px;
+  padding: 14px 16px;
+  color: #ffffff;
 }
 
-.card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left: 4px solid var(--color-border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 12px 14px;
+.lane--newsletter .lane__header {
+  background: var(--newsletter);
+}
+.lane--classdojo .lane__header {
+  background: var(--classdojo);
+}
+.lane--email .lane__header {
+  background: var(--email);
 }
 
-.card--high {
-  border-left-color: var(--color-high);
+.lane__header-text {
+  min-width: 0;
+  flex: 1;
 }
 
-.card--medium {
-  border-left-color: var(--color-medium);
-}
-
-.card--low {
-  border-left-color: var(--color-low);
-}
-
-.card__header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-
-.badge {
-  display: inline-block;
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--color-bg);
-  color: var(--color-text-muted);
-}
-
-.badge--important {
-  background: var(--color-high-bg);
-  color: var(--color-high);
-}
-
-.badge--uncertain {
-  background: var(--color-medium-bg);
-  color: var(--color-medium);
-}
-
-.card__title {
-  margin: 0 0 2px;
-  font-size: 1rem;
-}
-
-.card__when {
-  margin: 0 0 4px;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
-}
-
-.card__description {
-  margin: 0 0 8px;
-  font-size: 0.9rem;
-}
-
-.card__source {
+.lane__title {
   margin: 0;
+  font-size: 1.15rem;
+  color: #ffffff;
+}
+
+.lane__description {
+  margin: 3px 0 0;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.lane__badge {
+  flex: none;
+  background: var(--flag);
+  color: var(--flag-text);
+  font-weight: 700;
   font-size: 0.78rem;
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
 }
 
-.card__source a {
-  color: var(--color-accent);
+.lane__body {
+  flex: 1;
 }
 
-.empty-message {
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-  font-style: italic;
-  margin: 6px 0 0;
+.lane__more {
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line);
+  padding: 13px 16px;
+  cursor: pointer;
 }
 
-.source-list {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.lane__more:hover {
+  color: var(--text);
+  background: var(--bg);
 }
 
-.source-list a {
-  color: var(--color-accent);
+/* The week's document, linked from the phrase "the Google Doc" in the lane
+   header. Sits on a solid colour, so it inherits white rather than using the
+   accent, and relies on an underline to read as a link. */
+.lane__doc-link {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.lane__doc-link::after {
+  content: " ↗";
+  font-weight: 400;
   text-decoration: none;
 }
 
-.source-list a:hover {
+.lane__doc-link:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* The global focus ring is the accent blue, which is weak on a coloured header. */
+.lane__header a:focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- Rows --- */
+
+/* Shaded band so a section heading reads as a divider rather than as another
+   row of content. Uses the page background, which keeps it legible in both
+   themes without adding a colour. */
+.lane__group-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin: 0;
+  padding: 8px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+/* The lane header already provides the top edge. */
+.lane__body > .lane__group-title:first-child,
+.row-list > .lane__group-title:first-child {
+  border-top: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--line);
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+/* The shaded heading supplies the separating line above the first row. */
+.lane__group-title + .row,
+.lane__body > .row:first-child,
+.row-list > .row:first-child {
+  border-top: none;
+}
+
+.row:hover {
+  background: var(--bg);
+}
+
+.row__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-top: 7px;
+  background: transparent;
+}
+
+.row--unread .row__dot {
+  background: var(--unread);
+}
+
+.row__title {
+  font-weight: 400;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.row--unread .row__title {
+  font-weight: 700;
+}
+
+.row__meta {
+  margin: 3px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.row__tag {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 7px;
+  font-size: 0.74rem;
+}
+
+.row__tag--flag {
+  background: var(--flag);
+  border-color: var(--flag);
+  color: var(--flag-text);
+  font-weight: 700;
+}
+
+.lane__empty {
+  margin: 0;
+  padding: 18px 16px;
+  color: var(--text-2);
+  font-size: 0.9rem;
+}
+
+/* --- Mobile segmented control --- */
+
+/* The bar carries the page gutters, since it now sits outside <main>. Toggling
+   display on the bar rather than the pill keeps the gutters from leaving a gap
+   when the segments are hidden. */
+.segmented-bar {
+  display: none;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 20px 0;
+}
+
+.segmented {
+  display: flex;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-segment);
+  padding: 5px;
+}
+
+.segment {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-radius: 9px;
+  padding: 9px 6px;
+  cursor: pointer;
+}
+
+.segment[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.segment[data-lane="newsletter"][aria-pressed="true"] {
+  background: var(--newsletter-tint);
+}
+.segment[data-lane="classdojo"][aria-pressed="true"] {
+  background: var(--classdojo-tint);
+}
+.segment[data-lane="email"][aria-pressed="true"] {
+  background: var(--email-tint);
+}
+
+.segment__count {
+  background: var(--flag);
+  color: var(--flag-text);
+  font-weight: 700;
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.segment__count:empty {
+  display: none;
+}
+
+/* --- Search results --- */
+
+.search-results-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lane);
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.search-results-panel h2 {
+  margin: 0;
+  font-size: 1rem;
+  padding: 14px 16px 2px;
+}
+
+/* --- Dialogs --- */
+
+.dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  overflow: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lane);
+  padding: 18px 20px 22px;
+}
+
+.dialog::backdrop {
+  background: rgba(28, 42, 58, 0.45);
+}
+
+.dialog__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog__kicker {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.dialog__close {
+  margin-left: auto;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+.dialog__title {
+  margin: 8px 0 4px;
+  font-size: 1.25rem;
+}
+
+.dialog__meta {
+  margin: 0 0 12px;
+  color: var(--text-2);
+  font-size: 0.87rem;
+}
+
+.dialog__body p {
+  margin: 0 0 10px;
+}
+
+.dialog__body ul {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.dialog__link {
+  display: inline-block;
+  margin-top: 6px;
+  font-weight: 700;
+  color: var(--unread);
+  text-decoration: none;
+}
+
+.dialog__link:hover {
   text-decoration: underline;
+}
+
+.dialog .row-list {
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+}
+
+/* --- Mobile: one lane at a time --- */
+
+@media (max-width: 759px) {
+  .site-header__inner,
+  .toolbar,
+  .segmented-bar,
+  main {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .site-header h1 {
+    font-size: 1.55rem;
+  }
+
+  .site-header__inner {
+    gap: 11px;
+  }
+
+  .site-header__logo {
+    height: 40px;
+  }
+
+  /* Header stacks. */
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .segmented-bar {
+    display: block;
+  }
+
+  .lanes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Only the selected lane shows. */
+  .lane {
+    display: none;
+  }
+
+  .lane.is-active {
+    display: flex;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --color-bg: #14161f;
-    --color-surface: #1c1f2b;
-    --color-text: #e9eaf2;
-    --color-text-muted: #9598a8;
-    --color-border: #2b2f3f;
-    --color-high-bg: #3a1f22;
-    --color-medium-bg: #362f1c;
-    --color-low-bg: #1e2f23;
+    --bg: #131a22;
+    --panel: #1b2430;
+    --text: #e7edf4;
+    --text-2: #a3b1c0;
+    --line: #2d3946;
+    --unread: #5b93ff;
+
+    --newsletter: #128978;
+    --classdojo: #7a5fcc;
+    --email: #c75f27;
+
+    --newsletter-tint: #10322d;
+    --classdojo-tint: #241d3d;
+    --email-tint: #38200f;
+  }
+
+  .segment[aria-pressed="true"] {
+    color: var(--text);
+  }
+
+  .dialog::backdrop {
+    background: rgba(5, 9, 14, 0.65);
   }
 }

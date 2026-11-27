@@ -3,61 +3,132 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>School Dashboard</title>
+  <!-- Shared by link with one grade's parents, not meant to be found by search.
+       Pages sites are public, so this is a request to crawlers, not access control. -->
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <title>2nd Grade</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@700;800&family=Atkinson+Hyperlegible:wght@400;700&display=swap"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="site-header">
-    <h1 id="school-name">School Dashboard</h1>
-    <p id="last-updated" class="last-updated"></p>
+    <div class="site-header__inner">
+      <!-- width/height are the intrinsic pixels so the browser reserves the space
+           before the image loads and the heading doesn't jump. Named in alt
+           because the school name appears nowhere else on the page. -->
+      <img
+        class="site-header__logo"
+        src="logo.png"
+        alt="One School"
+        width="121"
+        height="132"
+      />
+      <div class="site-header__text">
+        <h1 id="class-name">2nd Grade</h1>
+        <p id="new-summary" class="site-header__subtitle"></p>
+      </div>
+    </div>
   </header>
 
-  <div class="search-bar">
-    <label for="search-input" class="visually-hidden">Search school information</label>
-    <input id="search-input" type="search" placeholder="Search events, homework, announcements…" autocomplete="off" />
+  <!-- Mobile only: replaces the three columns. Sits directly under the header, so
+       choosing a source is the first thing available. Real <button>s with
+       aria-pressed so the selected lane is announced, not just coloured. -->
+  <div class="segmented-bar" id="lane-segments-bar">
+    <div class="segmented" id="lane-segments" role="group" aria-label="Choose a source">
+      <button type="button" class="segment" data-lane="newsletter" aria-pressed="true">
+        <span class="segment__label">Newsletter</span>
+        <span class="segment__count" data-count="newsletter"></span>
+      </button>
+      <button type="button" class="segment" data-lane="classdojo" aria-pressed="false">
+        <span class="segment__label">ClassDojo</span>
+        <span class="segment__count" data-count="classdojo"></span>
+      </button>
+      <button type="button" class="segment" data-lane="email" aria-pressed="false">
+        <span class="segment__label">Email</span>
+        <span class="segment__count" data-count="email"></span>
+      </button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="search-bar">
+      <label for="search-input" class="visually-hidden">Search school information</label>
+      <input id="search-input" type="search" placeholder="Search tests, homework, events…" autocomplete="off" />
+    </div>
   </div>
 
   <p id="app-error" class="app-error" hidden></p>
 
   <main>
-    <section id="search-section" hidden aria-live="polite">
-      <h2>Search Results</h2>
-      <div id="search-results" class="card-list"></div>
+    <section id="search-section" class="search-results-panel" hidden aria-live="polite">
+      <h2>Search results</h2>
+      <div id="search-results" class="row-list"></div>
     </section>
 
-    <div id="main-sections">
-      <section id="important-section">
-        <h2>Important</h2>
-        <div id="important-list" class="card-list"></div>
+    <div class="lanes" id="lanes">
+      <section class="lane lane--newsletter is-active" data-lane="newsletter" aria-labelledby="lane-newsletter-title">
+        <div class="lane__header">
+          <div class="lane__header-text">
+            <h2 class="lane__title" id="lane-newsletter-title">Newsletter</h2>
+            <p class="lane__description" data-description="newsletter"></p>
+          </div>
+          <span class="lane__badge" data-badge="newsletter" hidden></span>
+        </div>
+        <div class="lane__body" data-body="newsletter"></div>
+        <button type="button" class="lane__more" data-more="newsletter">Open all Newsletter items</button>
       </section>
 
-      <section id="this-week-section">
-        <h2>This Week</h2>
-        <p id="week-range" class="section-subtitle"></p>
-        <div id="this-week-list" class="card-list"></div>
+      <section class="lane lane--classdojo" data-lane="classdojo" aria-labelledby="lane-classdojo-title">
+        <div class="lane__header">
+          <div class="lane__header-text">
+            <h2 class="lane__title" id="lane-classdojo-title">ClassDojo</h2>
+            <p class="lane__description" data-description="classdojo"></p>
+          </div>
+          <span class="lane__badge" data-badge="classdojo" hidden></span>
+        </div>
+        <div class="lane__body" data-body="classdojo"></div>
+        <button type="button" class="lane__more" data-more="classdojo">Open all ClassDojo items</button>
       </section>
 
-      <section id="upcoming-section">
-        <h2>Upcoming</h2>
-        <div id="upcoming-list" class="card-list"></div>
-      </section>
-
-      <section id="supplies-section">
-        <h2>Supplies</h2>
-        <div id="supplies-list" class="card-list"></div>
-      </section>
-
-      <section id="announcements-section">
-        <h2>Announcements</h2>
-        <div id="announcements-list" class="card-list"></div>
-      </section>
-
-      <section id="sources-section">
-        <h2>Sources</h2>
-        <div id="sources-list"></div>
+      <section class="lane lane--email" data-lane="email" aria-labelledby="lane-email-title">
+        <div class="lane__header">
+          <div class="lane__header-text">
+            <h2 class="lane__title" id="lane-email-title">Email</h2>
+            <p class="lane__description" data-description="email"></p>
+          </div>
+          <span class="lane__badge" data-badge="email" hidden></span>
+        </div>
+        <div class="lane__body" data-body="email"></div>
+        <button type="button" class="lane__more" data-more="email">Open all Email items</button>
       </section>
     </div>
   </main>
+
+  <dialog id="detail-dialog" class="dialog" aria-labelledby="detail-title">
+    <div class="dialog__bar">
+      <span class="dialog__kicker" id="detail-kicker"></span>
+      <button type="button" class="dialog__close" data-close-dialog aria-label="Close">&times;</button>
+    </div>
+    <h2 class="dialog__title" id="detail-title"></h2>
+    <p class="dialog__meta" id="detail-meta"></p>
+    <div class="dialog__body" id="detail-body"></div>
+    <a class="dialog__link" id="detail-link" target="_blank" rel="noopener noreferrer" hidden>Open the original</a>
+  </dialog>
+
+  <dialog id="list-dialog" class="dialog" aria-labelledby="list-title">
+    <div class="dialog__bar">
+      <span class="dialog__kicker">All items</span>
+      <button type="button" class="dialog__close" data-close-dialog aria-label="Close">&times;</button>
+    </div>
+    <h2 class="dialog__title" id="list-title"></h2>
+    <div class="row-list" id="list-body"></div>
+  </dialog>
 
   <script type="module" src="app.js"></script>
 </body>

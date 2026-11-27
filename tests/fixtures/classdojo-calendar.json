@@ -1,0 +1,28 @@
+{
+  "_items": [
+    {
+      "_id": "6a958efc132739b3b997ae70",
+      "title": "Hispanic Heritage Open Mic",
+      "description": "This open mic is dedicated to Hispanic Heritage, each song choice needs approval.",
+      "startDateTime": "2026-09-25T17:50:00.000Z",
+      "endDateTime": "2026-09-25T19:10:00.000Z",
+      "allDayEvent": false,
+      "timezone": "America/New_York",
+      "startDate": "2026-09-25",
+      "endDate": "2026-09-25",
+      "teacher": { "firstName": "Jane", "lastName": "Example", "title": "Mrs." },
+      "classroom": { "name": "Mrs. Example's Class" }
+    },
+    {
+      "_id": "6a958efc132739b3b997ae71",
+      "title": "Chapter 4 Math Quiz",
+      "description": "Covers regrouping.",
+      "startDateTime": "2026-10-01T13:00:00.000Z",
+      "allDayEvent": true,
+      "timezone": "America/New_York",
+      "startDate": "2026-10-01",
+      "teacher": { "firstName": "Jane", "lastName": "Example", "title": "Mrs." },
+      "classroom": { "name": "Mrs. Example's Class" }
+    }
+  ]
+}

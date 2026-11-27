@@ -1,182 +1,237 @@
-# School Dashboard
+# 2nd Grade Dashboard
 
-A static parent dashboard that organizes school information (homework,
-tests, events, deadlines, supplies, announcements) collected automatically
-from configured school sources. Built to run at ~$0/month on GitHub Pages
-and GitHub Actions, with no database.
+One shared dashboard for both 2nd-grade classes. It gathers the week's school
+information from three sources, strips anything personal, and publishes a
+static page that parents open from a link shared in a group chat. It runs at
+about $0/month on GitHub Pages and GitHub Actions, with no database and no
+server at request time.
 
-The dashboard **organizes information, it does not invent it** — every
-event carries a source, and the AI extraction step is instructed to omit
-anything it can't confidently support from the source text. See
-[`os2ndgrade_dashboard_POC.md`](../os2ndgrade_dashboard_POC.md) for the
-full product spec, and [`AGENTS.md`](./AGENTS.md) for implementation notes
-and current project status.
+The dashboard **organizes information, it does not invent it**: every event
+carries a source, and anything uncertain is marked or left out.
+
+The full design record — decisions, privacy model, and the bugs that shaped
+them — is in [`Docs/osclassinfo.md`](./Docs/osclassinfo.md). Read that before
+changing how a source is parsed.
+
+## What parents see
+
+Three lanes, one per source, so a parent always knows where to look:
+
+| Lane | Source | Sections |
+| --- | --- | --- |
+| Newsletter | the week's Google Doc, found via the school portal | Tests / Homework / To do / Events |
+| ClassDojo | the parent app's JSON APIs | Upcoming / Messages |
+| Email | broadcast school mail over IMAP | Teachers / General announcements |
+
+Desktop shows three columns. Below 760px a segmented control under the header
+shows one lane at a time. Unread state is kept per browser in `localStorage`,
+because there is no login.
 
 ## How it works
 
 ```
-Sources (website / calendar / PDF)
-        │
-        ▼  Playwright fetch, per-source, fails safely
-   fetchSources.ts
-        │
-        ▼  AI extraction (organize, don't invent)
-   processWithAi.ts
-        │
-        ▼  merge, conflict resolution, change log
-   generateDashboard.ts  →  data/events.json, data/current-week.json,
-        │                    output/whatsapp-message.txt
-        ▼  schema + duplicate-id check
-   validateData.ts
+fetchSources.ts       per-source fetch, fails safely   →  output/raw/<slug>.json
+processWithAi.ts      deterministic parse, AI fallback →  data/pending-review.json
+generateDashboard.ts  merge + conflict resolution      →  data/events.json
+                                                       →  output/whatsapp-message.txt
+validateData.ts       schema + duplicate-id check      →  exits non-zero on failure
 ```
 
-`src/scripts/updatePipeline.ts` chains all four steps and is what the
-scheduled GitHub Actions workflow runs. The frontend
-(`src/dashboard/app.ts`, bundled to `public/app.js`) reads
-`data/events.json` client-side — there is no backend at request time.
+`src/scripts/updatePipeline.ts` chains all four and is what the scheduled
+workflow runs. The frontend (`src/dashboard/app.ts`, bundled to
+`public/app.js`) reads `data/events.json` client-side.
+
+**The AI is the fallback, not the engine.** Every source is parsed
+deterministically first (`src/shared/parse*.ts`). The AI only runs when a parser
+returns nothing, which means the source changed shape. That keeps normal runs
+free, reproducible, and unable to invent dates, and it makes redaction
+mechanical instead of a request a model may or may not honour.
+
+Only the newest raw file for each enabled source is processed, so old weekly
+newsletters and removed sources do not leak back in. When a newer weekly
+newsletter arrives, events from the older issue are dropped from the data.
 
 ## Local development
 
-### 1. Install dependencies
-
 ```bash
 npm install
-npm run playwright:install   # downloads the Chromium binary fetchSources.ts uses
+npm run playwright:install   # Chromium, used by the portal and ClassDojo fetchers
+npm run dev                  # builds the bundle, serves http://localhost:8080
 ```
 
-### 2. Run the dashboard (Phase 1 — no AI/backend needed)
-
-The sample data in `data/events.json` is enough to see the full UI:
+`npm run dev` serves `public/` at `/` and `data/` at `/data/`, matching the
+deployed layout (override the port with `PORT=...`). It shows whatever is in
+`data/events.json`; that file is generated and gitignored, so on a fresh clone
+run the pipeline first.
 
 ```bash
-npm run dev
+npm run typecheck
+npm test                     # fixed fixtures and reference dates — no network, no AI
 ```
 
-This builds the frontend bundle and starts a zero-dependency static file
-server at `http://localhost:8080` (override with `PORT=...`). It serves
-`public/` at `/` and `data/` at `/data/`, matching how the deployed site
-is laid out.
-
-### 3. Configure local credentials (only needed for the AI pipeline)
+### Credentials
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in `AI_API_KEY` (and `AI_PROVIDER`/`AI_MODEL` if you're not using the
-defaults). `.env` is gitignored and **must never be committed** — it's
-local-dev only. In GitHub Actions, the same variable names are provided as
-repository secrets instead (see below).
+`.env` is gitignored and **must never be committed**. In GitHub Actions the same
+names come from repository secrets. Every variable is documented in
+[`.env.example`](./.env.example).
 
-### 4. Configure sources
-
-Edit `data/sources.json` — add/remove/enable sources without touching any
-code. `priority` (lower number = higher priority) controls which source
-wins when two sources report conflicting information for the same event.
-
-Supported source types:
-
-- `website` / `calendar` — unauthenticated Playwright page fetch.
-- `pdf` — not fetched by `fetchSources.ts` (Playwright doesn't parse PDFs);
-  disabled by default.
-- `school_portal` — for Blackbaud/MySchoolApp-style portals. Requires
-  `SCHOOL_PORTAL_LOGIN_URL` / `SCHOOL_PORTAL_USERNAME` / `SCHOOL_PORTAL_PASSWORD`.
-  Log in manually once, navigate to the page you want read (announcements,
-  calendar, etc.), and copy that exact URL into the source's `url` field —
-  the pipeline logs in once per run and reuses that session for every
-  `school_portal` source.
-- `gmail` — reads mail via IMAP with an app password (`GMAIL_ADDRESS` /
-  `GMAIL_APP_PASSWORD`), not a URL. Optional `filterFrom` restricts the
-  search to one sender; `lookbackDays` controls the search window (default
-  14). Generate an app password at
-  [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
-  (requires 2-Step Verification) — never use your real Gmail password here.
-
-**ClassDojo is not supported.** Its login page returns a 403 to headless
-browsers (bot detection), and getting past that would mean spoofing browser
-fingerprints to evade a service's anti-automation controls — out of scope
-for this project. If your ClassDojo account can email you class updates,
-turn that on and point a `gmail` source at it instead.
-
-**Keeping identifying info out of `data/sources.json`.** If this repo is
-public, a real teacher's email or your school's exact subdomain doesn't
-belong in a committed file. Any source can use `urlEnv` / `filterFromEnv`
-instead of `url` / `filterFrom` — the value is the *name* of an env var to
-read the real value from at runtime, e.g.:
-
-```json
-{ "name": "Teacher Emails", "type": "gmail", "filterFromEnv": "GMAIL_FILTER_TEACHER" }
-```
-
-with `GMAIL_FILTER_TEACHER=actual.teacher@example.net` set only in `.env`
-locally and as a GitHub Actions secret in CI — never in the committed file.
-
-### 5. Run the pipeline steps
-
-Each step can run standalone, or all together:
+### Running the pipeline
 
 ```bash
-npm run fetch-sources     # Playwright fetch → output/raw/<slug>.json
-npm run process-ai        # AI extraction → data/pending-review.json
-npm run generate-dashboard  # merge + conflict resolution → data/events.json
-npm run validate-data      # schema + duplicate-id check, exits non-zero on failure
-npm run pipeline           # all of the above, in order
+npm run pipeline             # all four steps
+npm run fetch-sources        # or any step on its own
+npm run process-ai
+npm run generate-dashboard
+npm run validate-data
 ```
 
-`fetchSources.ts` currently skips `type: "pdf"` sources — Playwright
-navigates pages, it doesn't parse PDFs. The sample `Weekly Newsletter`
-source is disabled by default for this reason.
+### Signing in to the school portal
 
-## Tests
+The newsletter lane needs the portal only to *find* the week's Google Doc; the
+doc itself is link-shared and is fetched over plain HTTP. The portal login is
+three hops (username, then a Blackbaud sign-in page, then a password form inside
+an iframe), and a login from an unrecognised device demands a 6-digit code
+emailed to the account.
+
+A fresh headless browser looks like a new device every run, so the pipeline
+keeps a browser profile in `output/browser-profile/` (gitignored — it holds a
+live session). Sign in once:
 
 ```bash
-npm test
+npm run portal-login         # opens a window; type the emailed code when asked
 ```
 
-Covers week-range math, event merge/conflict resolution, schema
-validation (including duplicate-id detection), and AI response JSON
-parsing, using fixture data — no live sources or AI API required.
+After that, `npm run pipeline` reuses the saved session. If the portal asks for a
+code again, run `npm run portal-login` again.
+
+## Configuring sources
+
+Everything week-specific lives in config, never in code.
+
+- **`data/sources.json`** — the sources, their lane and section, priorities,
+  and `sectionRules` (file an item under a section by its title, whichever
+  source forwarded it). A lower `priority` number wins when two *different*
+  sources disagree about the same event. Section order follows source order.
+- **`.env` / GitHub secrets** — credentials, `REDACT_NAMES`, `MAIL_BULK_DOMAINS`.
+- **`urlEnv` / `filterFromEnv`** — a source can hold the *name* of an env var
+  instead of a literal URL or sender address, so a real school subdomain or
+  teacher address never appears in a committed file:
+
+  ```json
+  { "name": "Teacher Emails", "type": "gmail", "filterFromEnv": "GMAIL_FILTER_TEACHER" }
+  ```
+
+`lane_sections` is derived from this config and published with the data, so the
+frontend never restates section names.
+
+### Source types
+
+- **`newsletter_board`** — scrapes the portal bulletin board for newsletter
+  links, picks the newest by the `M/D` range in its title, then reads the Google
+  Doc's `export?format=txt`.
+- **`classdojo`** — the parent app's own JSON APIs, with a browser used only to
+  obtain a session cookie. Two query parameters are deliberate:
+  `withStudentCommentsAndLikes=false` (comments are written by other parents and
+  children, so those names never reach this process) and
+  `withSyntheticPosts=false` (drops reposts that duplicate the calendar feed).
+  Teacher, sender and classroom fields in the responses are never read.
+- **`gmail`** — IMAP with an app password
+  ([create one](https://myaccount.google.com/apppasswords); needs 2-Step
+  Verification; never use the real account password). Reads newest-first within
+  `lookbackDays`.
+- **`school_portal`** — an authenticated portal page. Currently has no working
+  source: it targets the old single-domain login form.
+- **`website`, `calendar`, `pdf`, `google_doc`** — supported by the schema.
+  `pdf` is not fetched (Playwright does not parse PDFs).
+
+**`localOnly: true`** marks a source that needs an interactive login (the
+newsletter board and both ClassDojo sources). Scheduled CI runs skip those
+instead of failing.
+
+## Privacy
+
+Everything published goes to a **public URL**, so this is the core constraint.
+
+- **Removed:** children's names (listed in `REDACT_NAMES`, because no pattern can
+  safely infer a first name), other families' surnames, credential lines, email
+  addresses, phone numbers.
+- **Kept on purpose:** staff names. Stripping them made different teachers' rows
+  indistinguishable.
+- **Withheld whole, not redacted:** any message that names a child.
+- **Email is broadcast-only.** A message is published only if it has a positive
+  broadcast signal (`List-Unsubscribe`/`List-Id`/bulk precedence, undisclosed or
+  zero visible recipients, a known mass-mail domain, or three or more
+  addressees), no billing wording, no direct-message subject, no configured
+  child name, and something school-actionable. Only derived signals are stored —
+  never other recipients' addresses or message IDs. `broadcastChannel: true` is
+  for a sender that *only* broadcasts (a school communications address); a class
+  teacher must never have it.
+- **Relevance is a privacy filter.** Under-publishing is recoverable;
+  over-publishing to a public URL is not.
+- The site sends `noindex` and a `robots.txt`. That is a request to crawlers,
+  not access control.
+- Real fetched content stays in gitignored `output/raw/`. Test fixtures are
+  synthetic wherever they would contain names.
 
 ## Deployment (GitHub Pages + GitHub Actions)
 
-`.github/workflows/update-dashboard.yml` runs on a weekly cron (Sunday
-18:00 UTC) and via manual `workflow_dispatch`. It type-checks, tests,
-runs the full pipeline, commits `data/events.json` /
-`data/current-week.json` / `output/whatsapp-message.txt` if they changed,
-and deploys `public/` (with a copy of the current data) to GitHub Pages.
+`.github/workflows/update-dashboard.yml` runs weekly (Sunday 18:00 UTC) and on
+manual dispatch. It type-checks, tests, runs the pipeline, validates, and
+deploys `public/` plus `data/events.json` to Pages. Generated data is **not**
+committed.
 
-To enable it on a real repository:
+Because `events.json` is gitignored, a CI runner starts with no previous data.
+It recovers the previous state from the live site via the `DASHBOARD_URL`
+variable. Without it, the newsletter and ClassDojo lanes — which CI skips —
+would vanish on every scheduled run.
 
-1. **Settings → Pages → Source**: set to "GitHub Actions".
-2. **Settings → Secrets and variables → Actions → New repository secret**:
-   add `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL` (and optionally
-   `AI_TIMEOUT_MS`). These map 1:1 to the names in `.env.example` — never
-   put real keys in a committed file. If you've enabled `gmail` or
-   `school_portal` sources, also add `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`,
-   `SCHOOL_PORTAL_LOGIN_URL`, `SCHOOL_PORTAL_USERNAME`,
-   `SCHOOL_PORTAL_PASSWORD` as secrets the same way, plus any `urlEnv` /
-   `filterFromEnv` names your `data/sources.json` references (e.g.
-   `GMAIL_FILTER_TEACHER`, `SCHOOL_PORTAL_ANNOUNCEMENTS_URL`).
-3. Optional: add an Actions **variable** (not secret) `DASHBOARD_URL` —
-   the public URL used in the generated WhatsApp message. Defaults to a
-   placeholder if unset.
-4. Trigger the workflow manually once (Actions tab → Update Dashboard →
-   Run workflow) to confirm it deploys.
+**A failed run never replaces a good site with a broken one.** The pipeline step
+is `continue-on-error`, so the validate and stage steps still run, and a final
+step marks the run red. `events.json` is not committed, so if the pipeline fails
+before writing it, validation fails, nothing is staged, and the existing
+deployment stays live. If it got as far as writing valid data (recovered from
+`DASHBOARD_URL` plus whatever sources succeeded), that is staged and deployed.
+The `deploy` job uses `!cancelled()`, because GitHub otherwise skips a job whose
+dependency failed.
+
+Setup on a real repository:
+
+1. **Settings → Pages → Source**: "GitHub Actions".
+2. **Secrets** (Settings → Secrets and variables → Actions): `AI_PROVIDER`,
+   `AI_API_KEY`, `AI_MODEL`, `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD`, and the
+   `GMAIL_FILTER_*` names that `data/sources.json` references.
+3. **Required for the email privacy filter:** `REDACT_NAMES` and
+   `MAIL_BULK_DOMAINS`. Without them a scheduled run publishes more than a local
+   run does. `SCHOOL_PORTAL_*` and `CLASSDOJO_*` are deliberately *not* needed in
+   CI.
+4. **Variable** (not a secret): `DASHBOARD_URL`, the public Pages URL.
+5. Run the workflow once from the Actions tab to confirm it deploys.
 
 ## Reliability
 
-- A source that fails to fetch is logged and skipped — it never erases
-  existing data for other sources.
-- If AI processing produces no results, the pipeline does not publish
-  empty data; the previous valid `data/events.json` is left in place.
-- `validateData.ts` fails the job (non-zero exit) on schema errors or
-  duplicate event ids, so bad data never reaches Pages.
-- Cross-source conflicts (same event, different reported dates) are
-  resolved by source `priority` and logged as `CONFLICT`, never silently
-  dropped.
+- A failing source is logged and skipped; it never erases other sources' data.
+- Empty extractions never overwrite good data.
+- `validateData.ts` exits non-zero on schema errors or duplicate ids, so bad
+  data cannot reach Pages.
+- A conflict requires *different sources* disagreeing; one source reporting the
+  same title on several dates is several occurrences.
+- "Today" is derived in the school's time zone (`America/New_York`), never from
+  UTC — after 8pm Eastern a UTC date is already tomorrow.
+
+## Known gaps
+
+- The Email lane's **School portal** section has no source.
+- Link-preview (Open Graph) tags are not set, so a pasted link previews poorly.
+- Events are removed only by the weekly-newsletter rule above; other sources
+  accumulate until their events are in the past, and past events are filtered
+  client-side.
 
 ## Cost
 
-Everything here runs on GitHub's free tier (Actions minutes for a public
-repo, Pages hosting) plus whatever the configured AI provider charges per
-API call. No database, no paid hosting.
+GitHub's free tier (Actions minutes, Pages) plus whatever the configured AI
+provider charges for the rare fallback call. The default is the Gemini free
+tier. No database, no paid hosting.
