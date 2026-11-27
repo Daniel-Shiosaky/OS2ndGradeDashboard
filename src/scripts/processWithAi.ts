@@ -35,6 +35,60 @@ async function loadConfiguredTimeZone(): Promise<string> {
   }
 }
 
+/** Enabled sources from the admin config, or null when it cannot be read. */
+async function loadEnabledSources(): Promise<SourceConfigEntry[] | null> {
+  try {
+    const raw = await readFile(SOURCES_PATH, "utf-8");
+    return SourcesConfigSchema.parse(JSON.parse(raw)).sources.filter((source) => source.enabled);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which raw files belong in this run.
+ *
+ * output/raw/ is a cache that only ever grows: a source removed from the config
+ * leaves its file behind, and the newsletter writes a new file every week
+ * (its source name carries the week, "Name (11/30-12/4)"). Processing every file
+ * meant removed placeholder sources were sent to the AI and last September's
+ * newsletter kept republishing its events alongside this week's.
+ *
+ * A file is kept only if it belongs to a currently enabled source, and when
+ * several files belong to the same source (the weekly newsletters) only the most
+ * recently fetched one is kept.
+ */
+export function selectCurrentRawFiles<T extends { source: { name: string }; fetchedAt: string }>(
+  entries: { fileName: string; fetched: T }[],
+  enabledSources: SourceConfigEntry[],
+): { current: { fileName: string; fetched: T }[]; skipped: { fileName: string; reason: string }[] } {
+  const newestPerSource = new Map<string, { fileName: string; fetched: T }>();
+  const skipped: { fileName: string; reason: string }[] = [];
+
+  for (const entry of entries) {
+    const owner = enabledSources.find(
+      (source) =>
+        entry.fetched.source.name === source.name ||
+        entry.fetched.source.name.startsWith(`${source.name} (`),
+    );
+    if (!owner) {
+      skipped.push({ fileName: entry.fileName, reason: "not an enabled source in data/sources.json" });
+      continue;
+    }
+    const previous = newestPerSource.get(owner.name);
+    if (!previous) {
+      newestPerSource.set(owner.name, entry);
+    } else if (entry.fetched.fetchedAt > previous.fetched.fetchedAt) {
+      skipped.push({ fileName: previous.fileName, reason: `superseded by a newer fetch of ${owner.name}` });
+      newestPerSource.set(owner.name, entry);
+    } else {
+      skipped.push({ fileName: entry.fileName, reason: `superseded by a newer fetch of ${owner.name}` });
+    }
+  }
+
+  return { current: [...newestPerSource.values()], skipped };
+}
+
 // The extracted output is published to a PUBLIC dashboard, so the prompt carries
 // privacy rules alongside the accuracy rules. These are not hypothetical: a real
 // newsletter contained a student login pattern ("Username:
@@ -244,9 +298,28 @@ export async function processAllFetched(): Promise<SourceExtraction[]> {
   // parser resolves its bare M/D dates against.
   const today = todayInTimeZone(timeZone);
 
-  const results: SourceExtraction[] = [];
+  const entries: { fileName: string; fetched: FetchedSource }[] = [];
   for (const fileName of files) {
-    const raw = JSON.parse(await readFile(path.join(RAW_DIR, fileName), "utf-8")) as FetchedSource;
+    try {
+      const fetched = JSON.parse(await readFile(path.join(RAW_DIR, fileName), "utf-8")) as FetchedSource;
+      entries.push({ fileName, fetched });
+    } catch {
+      console.log(`  SKIP ${fileName}: unreadable raw file`);
+    }
+  }
+
+  // If the config can't be read, fall back to processing everything rather than
+  // publishing nothing.
+  const enabledSources = await loadEnabledSources();
+  let selected = entries;
+  if (enabledSources) {
+    const { current, skipped } = selectCurrentRawFiles(entries, enabledSources);
+    for (const { fileName, reason } of skipped) console.log(`  SKIP ${fileName}: ${reason}`);
+    selected = current;
+  }
+
+  const results: SourceExtraction[] = [];
+  for (const { fetched: raw } of selected) {
     try {
       // extractFromSource logs which path produced the events (parser or AI),
       // so don't add a second line here claiming a path that may not have run.
