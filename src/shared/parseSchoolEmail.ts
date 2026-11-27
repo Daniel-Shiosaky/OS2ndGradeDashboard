@@ -112,11 +112,23 @@ export function trimEmailBoilerplate(body: string): string {
  * Mass-mail systems address each copy individually, so such a rule rejected
  * every genuine school broadcast.
  */
+/**
+ * True when \`fromDomain\` is \`domain\` itself or one of its subdomains. A bare
+ * endsWith also matched "evilmyschoolemails.com" for "myschoolemails.com", and an
+ * empty entry (a stray comma in the env var) matched every sender.
+ */
+export function domainMatches(fromDomain: string, domain: string): boolean {
+  const wanted = domain.trim().toLowerCase().replace(/^[@.]+/, "");
+  const actual = fromDomain.trim().toLowerCase();
+  if (!wanted || !actual) return false;
+  return actual === wanted || actual.endsWith("." + wanted);
+}
+
 export function isBroadcast(message: EmailMessage, bulkDomains: string[] = []): boolean {
   if (message.hasListHeaders) return true;
   if (message.bulkPrecedence) return true;
   if (message.undisclosedRecipients) return true;
-  if (bulkDomains.some((domain) => message.fromDomain.endsWith(domain.toLowerCase()))) return true;
+  if (bulkDomains.some((domain) => domainMatches(message.fromDomain, domain))) return true;
   if (message.recipientCount === 0) return true;
   return message.recipientCount >= 3;
 }
@@ -126,7 +138,8 @@ export type WithheldReason =
   | "billing"
   | "direct-message"
   | "not-school-related"
-  | "empty-after-redaction";
+  | "empty-after-redaction"
+  | "contact-details";
 
 export interface ParseEmailResult {
   events: ExtractedEvent[];
@@ -141,6 +154,7 @@ function emptyWithheld(): Record<WithheldReason, number> {
     "direct-message": 0,
     "not-school-related": 0,
     "empty-after-redaction": 0,
+    "contact-details": 0,
   };
 }
 
@@ -209,6 +223,14 @@ export function parseSchoolEmail(
     // 4. Subject-level signs of a one-to-one message.
     if (DIRECT_SUBJECT_PATTERNS.some((pattern) => pattern.test(message.subject))) {
       withheld["direct-message"]++;
+      continue;
+    }
+
+    // The subject becomes the published title but is not a body line, so the
+    // line filter below never saw it. A subject carrying a phone number or a
+    // credential hint is withheld whole rather than trimmed.
+    if (mustDropLine(message.subject)) {
+      withheld["contact-details"]++;
       continue;
     }
 

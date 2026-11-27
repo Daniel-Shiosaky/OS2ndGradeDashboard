@@ -66,7 +66,12 @@ const CREDENTIAL_PATTERNS = [
 /** Direct contact details, which have no place on a public class dashboard. */
 const CONTACT_PATTERNS = [
   /[\w.+-]+@[\w-]+\.[\w.]+/,
-  /\b\d{3}[.\-\s]\d{3}[.\-\s]\d{4}\b/,
+  // US-style numbers in the shapes people actually write: 555-123-4567,
+  // (555) 123-4567, 555.123.4567, +1 555 123 4567 and a bare 5551234567. The
+  // old pattern required a separator straight after the area code, so the
+  // parenthesised and unseparated forms were published. Over-matching only
+  // costs a dropped line; under-matching publishes a phone number.
+  /(?<!\d)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)/,
 ];
 
 /** True when a line must be dropped entirely rather than redacted in place. */

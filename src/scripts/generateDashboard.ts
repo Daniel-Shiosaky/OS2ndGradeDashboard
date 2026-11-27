@@ -20,7 +20,7 @@ import {
   type SourceConfigEntry,
 } from "../types/schema.js";
 import type { SourceExtraction } from "./processWithAi.js";
-import { getCurrentWeekRange, isWithinRange } from "../shared/weekRange.js";
+import { getCurrentWeekRangeInTimeZone, isWithinRange } from "../shared/weekRange.js";
 import { slugify } from "../shared/text.js";
 import { isMainModule } from "./runGuard.js";
 
@@ -412,7 +412,9 @@ export async function generateDashboard(
   await mkdir(OUTPUT_DIR, { recursive: true });
   await writeFile(EVENTS_PATH, JSON.stringify(eventsData, null, 2), "utf-8");
 
-  const weekRange = getCurrentWeekRange();
+  // School zone, not UTC: after ~8pm Eastern on Saturday the UTC date is already
+  // Sunday, which made the message name next week.
+  const weekRange = getCurrentWeekRangeInTimeZone(timezone);
   const weekEvents = merged.filter((event) => isWithinRange(event.date, weekRange));
 
   const weekLabel = new Date(`${weekRange.weekStart}T00:00:00Z`).toLocaleDateString("en-US", {

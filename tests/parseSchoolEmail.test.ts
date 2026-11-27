@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  domainMatches,
   isBroadcast,
   parseSchoolEmail,
   summariseWithheld,
@@ -188,5 +189,44 @@ describe("summariseWithheld", () => {
     const summary = summariseWithheld(withheld);
     expect(summary).toMatch(/not-broadcast/);
     expect(summary).not.toMatch(/\b0 /);
+  });
+});
+
+describe("domainMatches", () => {
+  it("matches the domain itself and its subdomains", () => {
+    expect(domainMatches("example-mail.com", "example-mail.com")).toBe(true);
+    expect(domainMatches("mass.example-mail.com", "example-mail.com")).toBe(true);
+  });
+
+  it("does not match a different domain that merely ends with the same text", () => {
+    expect(domainMatches("evilexample-mail.com", "example-mail.com")).toBe(false);
+    expect(domainMatches("notexample-mail.com", "example-mail.com")).toBe(false);
+  });
+
+  it("never matches on an empty entry, such as a stray comma in the env var", () => {
+    expect(domainMatches("example-school.net", "")).toBe(false);
+    expect(domainMatches("example-school.net", "  ")).toBe(false);
+  });
+
+  it("tolerates a leading @ or dot and mixed case", () => {
+    expect(domainMatches("Mass.Example-Mail.com", "@example-mail.com")).toBe(true);
+    expect(domainMatches("mass.example-mail.com", ".example-mail.com")).toBe(true);
+  });
+
+  it("is used by isBroadcast, so a lookalike sender is not treated as a broadcast", () => {
+    expect(isBroadcast({ ...BASE, fromDomain: "evilexample-mail.com" }, ["example-mail.com"])).toBe(false);
+  });
+});
+
+describe("parseSchoolEmail — contact details in the subject", () => {
+  it("withholds a broadcast whose subject carries a phone number", () => {
+    const payload = JSON.stringify({
+      messages: [
+        { ...BASE, recipientCount: 0, subject: "Field trip - call (555) 123-4567 to confirm" },
+      ],
+    });
+    const { events, withheld } = parseSchoolEmail(payload, OPTS);
+    expect(events).toEqual([]);
+    expect(withheld["contact-details"]).toBe(1);
   });
 });

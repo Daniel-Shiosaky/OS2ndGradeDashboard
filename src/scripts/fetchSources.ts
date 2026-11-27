@@ -427,7 +427,18 @@ async function fetchClassDojoSources(sources: SourceConfigEntry[]): Promise<Fetc
   const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext();
-    await loginToClassDojo(context, { email, password });
+    // Same rule as the portal login: a failed login (wrong password, device
+    // check, changed form) fails only these sources, never the whole fetch step.
+    try {
+      await loginToClassDojo(context, { email, password });
+    } catch (err) {
+      const message = `ClassDojo login failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`;
+      for (const source of sources) {
+        failures.push({ source, error: message });
+        console.log(`  FAIL ${source.name}: ${message}`);
+      }
+      return { fetched, failures };
+    }
 
     // The browser is only needed to obtain a session; the data comes from the
     // app's own JSON APIs, which the authenticated cookies give access to. That
