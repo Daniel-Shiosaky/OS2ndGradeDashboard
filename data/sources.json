@@ -8,7 +8,7 @@
       "urlEnv": "SCHOOL_PORTAL_BULLETIN_URL",
       "titlePattern": "Second Grade Newsletter",
       "enabled": true,
-      "localOnly": false,
+      "localOnly": true,
       "priority": 1,
       "lane": "newsletter",
       "role": "2nd grade newsletter"
@@ -18,7 +18,7 @@
       "type": "classdojo",
       "url": "https://home.classdojo.com/#/events",
       "enabled": true,
-      "localOnly": false,
+      "localOnly": true,
       "priority": 3,
       "lane": "classdojo",
       "role": "ClassDojo"
@@ -28,7 +28,7 @@
       "type": "classdojo",
       "url": "https://home.classdojo.com/#/story",
       "enabled": true,
-      "localOnly": false,
+      "localOnly": true,
       "priority": 4,
       "lane": "classdojo",
       "role": "ClassDojo"
@@ -44,35 +44,6 @@
       "role": "2nd grade teachers",
       "section": "Teachers",
       "localOnly": false
-    },
-    {
-      "name": "School Website",
-      "url": "https://example.com",
-      "type": "website",
-      "enabled": false,
-      "priority": 4,
-      "lane": "email",
-      "role": "School office",
-      "wholeSchool": true
-    },
-    {
-      "name": "School Calendar",
-      "url": "https://example.com/calendar",
-      "type": "calendar",
-      "enabled": false,
-      "priority": 2,
-      "lane": "email",
-      "role": "School office",
-      "wholeSchool": true
-    },
-    {
-      "name": "Weekly Newsletter (PDF)",
-      "url": "https://example.com/newsletter.pdf",
-      "type": "pdf",
-      "enabled": false,
-      "priority": 3,
-      "lane": "newsletter",
-      "role": "2nd grade newsletter"
     },
     {
       "name": "School Portal Announcements",
