@@ -15,7 +15,7 @@
 // nothing rather than guessing, and the caller falls back to the AI path.
 
 import { resolveMonthDay } from "./newsletter.js";
-import { mustDropLine, redactPersonalNames } from "./redact.js";
+import { mentionsAnyName, mustDropLine, redactPersonalNames } from "./redact.js";
 
 import type { Category, ExtractedEvent, Importance } from "../types/schema.js";
 
@@ -90,6 +90,8 @@ export interface ParseNewsletterResult {
   sections: NewsletterSection[];
   /** Lines dropped for containing credentials or contact details. */
   redactedLines: number;
+  /** Lines withheld whole because they name a configured child. */
+  namedLines: number;
 }
 
 /** Block headings that group the sub-sections beneath them. */
@@ -101,11 +103,16 @@ const WEEKDAYS = WEEKDAY.split("|");
  * dates to a year. Returns an empty list when the template no longer matches,
  * which is the caller's signal to fall back to the AI extractor.
  */
-export function parseNewsletter(text: string, today: Date): ParseNewsletterResult {
+export function parseNewsletter(
+  text: string,
+  today: Date,
+  extraNames: string[] = [],
+): ParseNewsletterResult {
   const events: ExtractedEvent[] = [];
   const seen = new Set<string>();
   let section = "";
   let redactedLines = 0;
+  let namedLines = 0;
 
   // Sub-sections keyed by "<block> — <heading>" so the "Other" that appears under
   // both Classwork and Homework doesn't get merged into one bucket.
@@ -174,7 +181,15 @@ export function parseNewsletter(text: string, today: Date): ParseNewsletterResul
 
     // Every surviving content line belongs to the newsletter outline, dated or
     // not — that is what makes the expandable Newsletter view complete.
-    const outlineItem = redactNames(line);
+    // A line naming a configured child is withheld whole, as in the email lane:
+    // trimming the name from "Childname is student of the week" still identifies
+    // a child on a public page.
+    if (mentionsAnyName(line, extraNames)) {
+      namedLines++;
+      continue;
+    }
+
+    const outlineItem = redactNames(line, extraNames);
     if (outlineItem) pushItem(outlineItem, isBullet);
 
     const match = line.match(DATE_PHRASE);
@@ -183,7 +198,7 @@ export function parseNewsletter(text: string, today: Date): ParseNewsletterResul
     const date = resolveMonthDay(Number(match[1]), Number(match[2]), today);
     if (!date) continue;
 
-    let title = redactNames(titleFrom(line));
+    let title = redactNames(titleFrom(line), extraNames);
     if (!title) continue;
 
     // Prefix the subject when it adds context: "Ch. 3 Quiz" -> "Math — Ch. 3 Quiz".
@@ -221,5 +236,5 @@ export function parseNewsletter(text: string, today: Date): ParseNewsletterResul
     .filter(([, items]) => items.length > 0)
     .map(([heading, items]) => ({ heading, items }));
 
-  return { events, sections: outline, redactedLines };
+  return { events, sections: outline, redactedLines, namedLines };
 }

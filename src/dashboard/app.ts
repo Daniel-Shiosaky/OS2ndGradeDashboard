@@ -142,11 +142,21 @@ function formatDay(dateStr: string): string {
   });
 }
 
-function formatReceived(event: SchoolEvent): string {
+/**
+ * A received instant is shown in the school's zone: a 9:22pm Eastern post is already
+ * the next day in UTC, which disagreed with the date the backend computed. A bare
+ * calendar date has no zone, so it stays on UTC to avoid shifting it a day.
+ */
+function formatReceived(event: SchoolEvent, timeZone: string): string {
   const raw = event.received_at ?? event.date;
-  const date = new Date(raw.length <= 10 ? `${raw}T00:00:00Z` : raw);
+  const isBareDate = raw.length <= 10;
+  const date = new Date(isBareDate ? `${raw}T00:00:00Z` : raw);
   if (Number.isNaN(date.getTime())) return raw;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: isBareDate ? "UTC" : timeZone,
+  });
 }
 
 function receivedTime(event: SchoolEvent): number {
@@ -158,6 +168,7 @@ function receivedTime(event: SchoolEvent): number {
 /* ---------- rows ---------- */
 
 interface RowContext {
+  timeZone: string;
   isRead: (event: SchoolEvent) => boolean;
   open: (event: SchoolEvent) => void;
 }
@@ -199,7 +210,7 @@ function eventRow(event: SchoolEvent, ctx: RowContext): HTMLElement {
     parts.push(formatDay(event.date));
   } else {
     if (event.source.role) parts.push(event.source.role);
-    parts.push(formatReceived(event));
+    parts.push(formatReceived(event, ctx.timeZone));
   }
   const detail = document.createElement("span");
   detail.textContent = parts.join(" · ");
@@ -303,7 +314,7 @@ function init(data: EventsData): void {
     render();
   }
 
-  const rowCtx: RowContext = { isRead, open: openDetail };
+  const rowCtx: RowContext = { timeZone, isRead, open: openDetail };
 
   /** Lane currently shown in the "Open all" dialog, so it can be re-rendered. */
   let listLane: Lane | null = null;

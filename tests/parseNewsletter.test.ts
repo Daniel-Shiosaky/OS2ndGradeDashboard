@@ -213,3 +213,27 @@ describe("parseNewsletter section outline", () => {
     expect(parseNewsletter("Just some prose with no headings.", TODAY).sections).toEqual([]);
   });
 });
+
+describe("parseNewsletter — configured child names", () => {
+  // Appended to the real template so the line lands in a live section.
+  const withNamedLine = `${FIXTURE}\nChildname is our student of the week on Friday 9/25\n`;
+
+  it("publishes such a line when no names are configured (the gap this guards)", () => {
+    const { events } = parseNewsletter(withNamedLine, TODAY);
+    expect(events.some((event) => /Childname/.test(event.title))).toBe(true);
+  });
+
+  it("withholds the whole line, from events and outline alike, when the name is configured", () => {
+    const { events, sections, namedLines } = parseNewsletter(withNamedLine, TODAY, ["Childname"]);
+    expect(namedLines).toBe(1);
+    expect(events.some((event) => /Childname/.test(event.title))).toBe(false);
+    expect(sections.flatMap((section) => section.items).some((item) => /Childname/.test(item))).toBe(false);
+  });
+
+  it("leaves the rest of the newsletter unchanged", () => {
+    const baseline = parseNewsletter(FIXTURE, TODAY);
+    const withNames = parseNewsletter(FIXTURE, TODAY, ["Childname"]);
+    expect(withNames.events).toEqual(baseline.events);
+    expect(withNames.namedLines).toBe(0);
+  });
+});

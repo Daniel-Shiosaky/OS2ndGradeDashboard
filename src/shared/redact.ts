@@ -20,6 +20,7 @@
 // Conferences" rows on different dates with no way to tell which was which.
 // Names of children and of other families are a different matter and still go.
 
+import type { ExtractedEvent } from "../types/schema.js";
 import { escapeRegExp, splitCommaList } from "./text.js";
 
 /** "the Othername Family", "The Thirdname family", "the Testfamily family". */
@@ -80,4 +81,63 @@ export function mustDropLine(line: string): boolean {
     CREDENTIAL_PATTERNS.some((pattern) => pattern.test(line)) ||
     CONTACT_PATTERNS.some((pattern) => pattern.test(line))
   );
+}
+
+/** True when `text` mentions any configured child name as a whole word. */
+export function mentionsAnyName(text: string, names: string[]): boolean {
+  return names.some(
+    (name) => name.trim() !== "" && new RegExp(`\\b${escapeRegExp(name.trim())}\\b`, "i").test(text),
+  );
+}
+
+/**
+ * Mechanical clean-up for text that is about to be sent to a third-party model.
+ *
+ * The deterministic parsers redact as they read, so the AI fallback was the one
+ * path where raw text — credential lines, phone numbers, a child's name — went
+ * out and came back unfiltered, relying on the prompt alone. A line that names a
+ * configured child is dropped rather than trimmed, matching the email lane:
+ * "Childname is student of the week" stays identifying after the name is cut.
+ */
+export function redactSourceText(
+  text: string,
+  names: string[] = [],
+): { text: string; droppedLines: number } {
+  let droppedLines = 0;
+  const kept: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim() && (mustDropLine(line) || mentionsAnyName(line, names))) {
+      droppedLines++;
+      continue;
+    }
+    kept.push(redactPersonalNames(line, names));
+  }
+  return { text: kept.join("\n"), droppedLines };
+}
+
+/**
+ * Applies the same rules to what the model returned, since a model can echo or
+ * reconstruct what the input filter removed. An event whose title or description
+ * would be dropped or names a child is discarded whole; anything else is redacted.
+ */
+export function sanitizeExtractedEvents(
+  events: ExtractedEvent[],
+  names: string[] = [],
+): { events: ExtractedEvent[]; withheld: number } {
+  const clean: ExtractedEvent[] = [];
+  let withheld = 0;
+  for (const event of events) {
+    const combined = `${event.title}\n${event.description}`;
+    if (mustDropLine(event.title) || mustDropLine(event.description) || mentionsAnyName(combined, names)) {
+      withheld++;
+      continue;
+    }
+    const title = redactPersonalNames(event.title, names);
+    if (!title) {
+      withheld++;
+      continue;
+    }
+    clean.push({ ...event, title, description: redactPersonalNames(event.description, names) });
+  }
+  return { events: clean, withheld };
 }

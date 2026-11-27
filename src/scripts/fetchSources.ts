@@ -699,7 +699,13 @@ function describeEmail(
   const header = (name: string) => String(parsed.headers.get(name) ?? "");
   const toField = addressCount(parsed.to);
   const ccField = addressCount(parsed.cc);
-  const rawToHeader = header("to").toLowerCase();
+  // `to` is an AddressObject (or a list of them), so String() gave "[object Object]"
+  // and the undisclosed-recipients signal could never fire. Read its text form.
+  const toText = [parsed.to]
+    .flat()
+    .map((group) => group?.text ?? "")
+    .join(" ")
+    .toLowerCase();
 
   return {
     subject: parsed.subject ?? "(no subject)",
@@ -713,7 +719,7 @@ function describeEmail(
         parsed.headers.get("list-post"),
     ),
     bulkPrecedence: /\b(?:bulk|list|junk)\b/i.test(header("precedence")),
-    undisclosedRecipients: rawToHeader.includes("undisclosed-recipients"),
+    undisclosedRecipients: toText.includes("undisclosed-recipients"),
   };
 }
 

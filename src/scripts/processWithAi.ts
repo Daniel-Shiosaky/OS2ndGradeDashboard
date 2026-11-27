@@ -8,7 +8,7 @@ import { getAiProvider } from "./aiProvider.js";
 import { parseNewsletter } from "../shared/parseNewsletter.js";
 import { parseClassDojo } from "../shared/parseClassDojo.js";
 import { parseSchoolEmail, summariseWithheld } from "../shared/parseSchoolEmail.js";
-import { namesFromEnv } from "../shared/redact.js";
+import { namesFromEnv, redactSourceText, sanitizeExtractedEvents } from "../shared/redact.js";
 import { splitCommaList } from "../shared/text.js";
 import { todayInTimeZone } from "../shared/weekRange.js";
 import { isMainModule } from "./runGuard.js";
@@ -237,7 +237,14 @@ export async function extractFromSource(
   }
 
   if (DETERMINISTIC_TYPES.has(fetched.source.type)) {
-    const { events, sections, redactedLines } = parseNewsletter(fetched.text, asOf);
+    const childNames = namesFromEnv(process.env);
+    if (childNames.length === 0) {
+      console.log("  WARN REDACT_NAMES is not set — child-name filtering is disabled for the newsletter");
+    }
+    const { events, sections, redactedLines, namedLines } = parseNewsletter(fetched.text, asOf, childNames);
+    if (namedLines > 0) {
+      console.log(`  ..   ${fetched.source.name}: withheld ${namedLines} line(s) naming a child`);
+    }
     if (redactedLines > 0) {
       console.log(`  ..   ${fetched.source.name}: dropped ${redactedLines} line(s) containing credentials or contact details`);
     }
@@ -262,8 +269,16 @@ export async function extractFromSource(
     );
   }
 
+  // This is the one path where text leaves the process and comes back, so it is
+  // filtered on both sides mechanically instead of trusting the prompt alone.
+  const childNames = namesFromEnv(process.env);
+  const { text: safeText, droppedLines } = redactSourceText(fetched.text, childNames);
+  if (droppedLines > 0) {
+    console.log(`  ..   ${fetched.source.name}: ${droppedLines} line(s) withheld from the AI (credentials, contact details or a child's name)`);
+  }
+
   const provider = getAiProvider();
-  const userPrompt = buildUserPrompt(fetched.source, fetched.text, today);
+  const userPrompt = buildUserPrompt(fetched.source, safeText, today);
   const raw = await provider.complete({ systemPrompt: SYSTEM_PROMPT, userPrompt });
 
   let parsed: unknown;
@@ -274,7 +289,11 @@ export async function extractFromSource(
   }
 
   const result = ExtractionResultSchema.parse(parsed);
-  return { source: fetched.source, events: result.events };
+  const { events: safeEvents, withheld: withheldEvents } = sanitizeExtractedEvents(result.events, childNames);
+  if (withheldEvents > 0) {
+    console.log(`  ..   ${fetched.source.name}: withheld ${withheldEvents} AI event(s) (credentials, contact details or a child's name)`);
+  }
+  return { source: fetched.source, events: safeEvents };
 }
 
 export async function processAllFetched(): Promise<SourceExtraction[]> {
