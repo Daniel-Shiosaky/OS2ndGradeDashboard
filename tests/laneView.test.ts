@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   activeNewsletterWeek,
   CALENDAR_HORIZON_DAYS,
+  CLASSDOJO_APP_LINK,
+  detailLinkFor,
   isWithinCalendarHorizon,
   dateLabelSource,
   isCurrentFeedItem,
@@ -140,5 +142,56 @@ describe("isWithinCalendarHorizon", () => {
 
   it("includes something that started earlier and is still running", () => {
     expect(isWithinCalendarHorizon({ date: "2026-11-23" }, "2026-11-27")).toBe(true);
+  });
+});
+
+describe("detailLinkFor — opening ClassDojo in the app on a phone", () => {
+  const IPHONE =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+  const ANDROID_PHONE =
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+  const ANDROID_TABLET =
+    "Mozilla/5.0 (Linux; Android 14; SM-X700) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  const IPAD = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
+  const DESKTOP = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  const dojoItem = { lane: "classdojo", url: "https://home.classdojo.com/#/story" };
+
+  it("sends a ClassDojo item on an iPhone or Android phone to the app link, in the same tab", () => {
+    for (const userAgent of [IPHONE, ANDROID_PHONE]) {
+      expect(detailLinkFor(dojoItem, userAgent)).toEqual({
+        href: CLASSDOJO_APP_LINK,
+        label: "Open in the ClassDojo app",
+        opensApp: true,
+      });
+    }
+    expect(CLASSDOJO_APP_LINK).toBe("https://www.classdojo.com/ul/home");
+  });
+
+  it("keeps the website link on a desktop or tablet, where the app is not the likely target", () => {
+    for (const userAgent of [DESKTOP, IPAD, ANDROID_TABLET]) {
+      expect(detailLinkFor(dojoItem, userAgent)).toEqual({
+        href: "https://home.classdojo.com/#/story",
+        label: "Open the original",
+        opensApp: false,
+      });
+    }
+  });
+
+  it("never changes the link for another lane's item, even on a phone", () => {
+    expect(detailLinkFor({ lane: "calendar", url: "https://school.example.org/cal" }, IPHONE)).toEqual({
+      href: "https://school.example.org/cal",
+      label: "Open the original",
+      opensApp: false,
+    });
+    expect(detailLinkFor({ lane: "newsletter", url: "https://docs.example.org/doc" }, ANDROID_PHONE)?.opensApp).toBe(false);
+  });
+
+  it("returns no link for a non-ClassDojo item with no source URL", () => {
+    expect(detailLinkFor({ lane: "email" }, IPHONE)).toBeNull();
+    expect(detailLinkFor({}, DESKTOP)).toBeNull();
+  });
+
+  it("still gives a ClassDojo item on a phone the app link even with no stored URL", () => {
+    expect(detailLinkFor({ lane: "classdojo" }, IPHONE)?.opensApp).toBe(true);
   });
 });

@@ -10,6 +10,7 @@
 import {
   activeNewsletterWeek,
   dateLabelSource,
+  detailLinkFor,
   isCurrentFeedItem,
   isWithinCalendarHorizon,
   lastDayOf,
@@ -386,8 +387,12 @@ function init(data: EventsData): void {
     body.appendChild(text);
 
     const link = $("#detail-link") as HTMLAnchorElement;
-    if (event.source.url) {
-      link.href = event.source.url;
+    const detailLink = detailLinkFor(event.source, navigator.userAgent);
+    if (detailLink) {
+      link.href = detailLink.href;
+      link.textContent = detailLink.label;
+      // The app link stays in this tab: a new tab can stop iOS handing it to the app.
+      link.target = detailLink.opensApp ? "_self" : "_blank";
       link.hidden = false;
     } else {
       link.hidden = true;

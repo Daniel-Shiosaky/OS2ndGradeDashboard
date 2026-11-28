@@ -114,3 +114,36 @@ export const CALENDAR_HORIZON_DAYS = 21;
 export function isWithinCalendarHorizon(item: { date: string }, todayIso: string): boolean {
   return item.date <= addDays(todayIso, CALENDAR_HORIZON_DAYS);
 }
+
+/**
+ * The page a ClassDojo item opens in the app. `/ul/home` is one of the universal
+ * links ClassDojo's iOS app claims on www.classdojo.com (its apple-app-site-association
+ * file), and it opens the app's home screen. If the app is not installed it falls
+ * back to the website. There is no public deep link for one specific post or event,
+ * so the parent lands on the app's home, not on the message.
+ */
+export const CLASSDOJO_APP_LINK = "https://www.classdojo.com/ul/home";
+
+/** A phone, where the ClassDojo app is likely installed. Tablets and desktops are not. */
+export function isPhone(userAgent: string): boolean {
+  return /iPhone|iPod|Android.+Mobile|Windows Phone/i.test(userAgent);
+}
+
+export interface DetailLink {
+  href: string;
+  label: string;
+  /** True for the app link: opened in the same tab so the OS can hand it to the app. */
+  opensApp: boolean;
+}
+
+/**
+ * The link shown under an item's detail. A ClassDojo item on a phone opens the
+ * ClassDojo app; everything else keeps its source link (null when it has none).
+ */
+export function detailLinkFor(source: { lane?: string; url?: string }, userAgent: string): DetailLink | null {
+  if (source.lane === "classdojo" && isPhone(userAgent)) {
+    return { href: CLASSDOJO_APP_LINK, label: "Open in the ClassDojo app", opensApp: true };
+  }
+  if (!source.url) return null;
+  return { href: source.url, label: "Open the original", opensApp: false };
+}
