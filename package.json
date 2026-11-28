@@ -9,6 +9,7 @@
     "dev": "npm run build:frontend && tsx src/scripts/devServer.ts",
     "typecheck": "tsc --noEmit",
     "playwright:install": "playwright install --with-deps chromium",
+    "publish-data": "node --env-file-if-exists=.env --import tsx src/scripts/publishData.ts",
     "portal-login": "node --env-file-if-exists=.env --import tsx src/scripts/portalLogin.ts",
     "fetch-sources": "node --env-file-if-exists=.env --import tsx src/scripts/fetchSources.ts",
     "process-ai": "node --env-file-if-exists=.env --import tsx src/scripts/processWithAi.ts",

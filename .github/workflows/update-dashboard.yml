@@ -47,6 +47,20 @@ jobs:
       - name: Build frontend
         run: npm run build:frontend
 
+      # The Newsletter and ClassDojo lanes need an interactive login, so CI cannot
+      # fetch them. A local `npm run publish-data` pushes this machine's
+      # events.json to the `data` branch; restoring it here makes it the previous
+      # state that this run's email fetch is merged onto. With no data branch yet
+      # (or an unreadable file) generateDashboard falls back to the live site.
+      - name: Restore published local data
+        run: |
+          if git fetch --depth=1 origin data; then
+            git show FETCH_HEAD:events.json > data/events.json
+            echo "Restored data/events.json from the data branch"
+          else
+            echo "No data branch yet; the pipeline will recover from the live site"
+          fi
+
       - name: Run update pipeline
         id: pipeline
         # Non-fatal on purpose, so the steps below still run after a failure.

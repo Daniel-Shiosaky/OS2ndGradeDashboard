@@ -185,9 +185,27 @@ deploys `public/` plus `data/events.json` to Pages. Generated data is **not**
 committed.
 
 Because `events.json` is gitignored, a CI runner starts with no previous data.
-It recovers the previous state from the live site via the `DASHBOARD_URL`
-variable. Without it, the newsletter and ClassDojo lanes — which CI skips —
-would vanish on every scheduled run.
+The Newsletter and ClassDojo lanes need an interactive login, so CI skips them and
+they have to be handed over from a local run (next section). Without that, they
+would be empty on the live site.
+
+### Publishing the lanes CI cannot fetch
+
+After a local `npm run pipeline`:
+
+```bash
+npm run publish-data -- --dry-run   # validate and build the commit, push nothing
+npm run publish-data              # push data/events.json to the `data` branch
+```
+
+The scheduled workflow restores that file before its own run, so the email lane is
+refreshed on top of your latest local lanes. If there is no `data` branch yet, it
+falls back to recovering from the live site via `DASHBOARD_URL`.
+
+**The `data` branch is public.** It holds the same content as the Pages site. Every
+publish force-pushes a fresh single-commit branch so snapshots do not pile up in
+history, but GitHub can keep unreachable commits retrievable by SHA, and forks or
+caches may hold copies. Treat anything you publish as permanently public.
 
 **A failed run never replaces a good site with a broken one.** The pipeline step
 is `continue-on-error`, so the validate and stage steps still run, and a final
