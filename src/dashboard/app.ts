@@ -7,6 +7,7 @@
 // teacher, family, parent or student name, and there is no per-class or
 // per-child filter. Senders are shown by role.
 
+import { activeNewsletterWeek, dateLabelSource, isCurrentFeedItem } from "../shared/laneView.js";
 import { todayInTimeZone } from "../shared/weekRange.js";
 import { LANES, type EventsData, type Lane, type NewsletterDigest, type SchoolEvent } from "../types/schema.js";
 
@@ -24,6 +25,7 @@ interface LaneGroup {
 }
 
 const byDateAsc = (first: SchoolEvent, second: SchoolEvent) => first.date.localeCompare(second.date);
+const byDateDesc = (first: SchoolEvent, second: SchoolEvent) => second.date.localeCompare(first.date);
 const byReceivedDesc = (first: SchoolEvent, second: SchoolEvent) =>
   receivedTime(second) - receivedTime(first);
 
@@ -60,10 +62,15 @@ const NEWSLETTER_GROUPS: LaneGroup[] = [
  * Dated items sort soonest-first because they are forward-looking; messages sort
  * newest-first, as the brief specifies for these lanes.
  */
-const FEED_GROUPS: LaneGroup[] = [
-  { title: "Upcoming", match: (event) => event.category !== "announcement", sort: byDateAsc },
-  { title: "Messages", match: (event) => event.category === "announcement", sort: byReceivedDesc },
-];
+function feedGroups(todayIso: string): LaneGroup[] {
+  const isDated = (event: SchoolEvent) => event.category !== "announcement";
+  return [
+    { title: "Upcoming", match: (event) => isDated(event) && event.date >= todayIso, sort: byDateAsc },
+    { title: "Messages", match: (event) => event.category === "announcement", sort: byReceivedDesc },
+    // Only reachable in "Open all": the dashboard cards drop past dated items.
+    { title: "Earlier", match: (event) => isDated(event) && event.date < todayIso, sort: byDateDesc },
+  ];
+}
 
 /**
  * Groups built from the section names the pipeline published for this lane, so
@@ -85,10 +92,14 @@ function sectionGroups(sectionTitles: string[]): LaneGroup[] {
   ];
 }
 
-function groupsForLane(lane: Lane, laneSections: EventsData["lane_sections"]): LaneGroup[] {
+function groupsForLane(
+  lane: Lane,
+  laneSections: EventsData["lane_sections"],
+  todayIso: string,
+): LaneGroup[] {
   if (lane === "newsletter") return NEWSLETTER_GROUPS;
   const sectionTitles = laneSections?.[lane] ?? [];
-  return sectionTitles.length > 0 ? sectionGroups(sectionTitles) : FEED_GROUPS;
+  return sectionTitles.length > 0 ? sectionGroups(sectionTitles) : feedGroups(todayIso);
 }
 
 /** Rows shown per lane on the dashboard; the rest sit behind "Open all". */
@@ -148,7 +159,7 @@ function formatDay(dateStr: string): string {
  * calendar date has no zone, so it stays on UTC to avoid shifting it a day.
  */
 function formatReceived(event: SchoolEvent, timeZone: string): string {
-  const raw = event.received_at ?? event.date;
+  const raw = dateLabelSource(event);
   const isBareDate = raw.length <= 10;
   const date = new Date(isBareDate ? `${raw}T00:00:00Z` : raw);
   if (Number.isNaN(date.getTime())) return raw;
@@ -257,20 +268,36 @@ function init(data: EventsData): void {
   $("#class-name").textContent = data.school_name;
   document.title = data.school_name;
 
-  // Newsletter lane keeps the week's items; the other lanes are a recent feed.
+  // The cards follow the active newsletter week, which is usually the coming
+  // week rather than the one containing today. "Open all" keeps the full history.
+  const activeWeek = activeNewsletterWeek(data.newsletter?.week_label, todayIsoDate);
   const upcoming = data.events.filter((event) => event.date >= todayIsoDate);
+
+  /** Dashboard cards: the Newsletter lane's coming items, current items elsewhere. */
   const byLane = new Map<Lane, SchoolEvent[]>();
-  for (const lane of LANES) byLane.set(lane, []);
+  /** "Open all": the same lanes without the recency filter on the feed lanes. */
+  const byLaneAll = new Map<Lane, SchoolEvent[]>();
+  for (const lane of LANES) {
+    byLane.set(lane, []);
+    byLaneAll.set(lane, []);
+  }
   for (const event of data.events) {
     const lane = event.source.lane ?? "newsletter";
-    const pool = lane === "newsletter" ? upcoming : data.events;
-    if (!pool.includes(event)) continue;
-    byLane.get(lane)?.push(event);
+    if (lane === "newsletter") {
+      if (!upcoming.includes(event)) continue;
+      byLane.get(lane)?.push(event);
+      byLaneAll.get(lane)?.push(event);
+      continue;
+    }
+    byLaneAll.get(lane)?.push(event);
+    if (isCurrentFeedItem(event, activeWeek, todayIsoDate)) byLane.get(lane)?.push(event);
   }
-  for (const lane of LANES) {
-    const items = byLane.get(lane)!;
-    if (lane === "newsletter") items.sort((first, second) => first.date.localeCompare(second.date));
-    else items.sort((first, second) => receivedTime(second) - receivedTime(first));
+  for (const lanes of [byLane, byLaneAll]) {
+    for (const lane of LANES) {
+      const items = lanes.get(lane)!;
+      if (lane === "newsletter") items.sort((first, second) => first.date.localeCompare(second.date));
+      else items.sort((first, second) => receivedTime(second) - receivedTime(first));
+    }
   }
 
   const isRead = (event: SchoolEvent) => readIds.has(event.id);
@@ -324,13 +351,13 @@ function init(data: EventsData): void {
     $("#list-title").textContent = `All ${LANE_LABELS[listLane]} items`;
     const body = $("#list-body");
     body.innerHTML = "";
-    const items = byLane.get(listLane)!;
+    const items = byLaneAll.get(listLane)!;
     if (items.length === 0) {
       emptyNote(body, "Nothing here yet.");
       return;
     }
-    // Same sections as the lane, but uncapped.
-    renderGrouped(body, items, groupsForLane(listLane, data.lane_sections), null);
+    // Same sections as the lane, but uncapped and including older items.
+    renderGrouped(body, items, groupsForLane(listLane, data.lane_sections, todayIsoDate), null);
   }
 
   function openLaneList(lane: Lane): void {
@@ -456,14 +483,18 @@ function init(data: EventsData): void {
           body,
           lane === "newsletter"
             ? "No newsletter items yet."
-            : `No ${LANE_LABELS[lane]} items — this source is not switched on yet.`,
+            : byLaneAll.get(lane)!.length > 0
+              ? `Nothing recent in ${LANE_LABELS[lane]}. Older items are under "Open all".`
+              : `No ${LANE_LABELS[lane]} items — this source is not switched on yet.`,
         );
       } else {
-        renderGrouped(body, items, groupsForLane(lane, data.lane_sections), ROWS_PER_LANE);
+        renderGrouped(body, items, groupsForLane(lane, data.lane_sections, todayIsoDate), ROWS_PER_LANE);
       }
 
       const more = document.querySelector<HTMLButtonElement>(`[data-more="${lane}"]`)!;
-      more.hidden = items.length <= ROWS_PER_LANE;
+      // Offer "Open all" whenever it would show more than the card does: either
+      // the card hit its row cap, or older items were filtered out of the card.
+      more.hidden = byLaneAll.get(lane)!.length <= Math.min(items.length, ROWS_PER_LANE);
       more.textContent = `Open all ${LANE_LABELS[lane]} items`;
     }
 
