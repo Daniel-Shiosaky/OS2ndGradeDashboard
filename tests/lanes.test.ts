@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { laneForSource, sectionFor } from "../src/scripts/generateDashboard.js";
+import { laneForSource, laneSectionsFrom, sectionFor } from "../src/scripts/generateDashboard.js";
 import type { SourceConfigEntry } from "../src/types/schema.js";
 
 function source(overrides: Partial<SourceConfigEntry> = {}): SourceConfigEntry {
@@ -89,5 +89,59 @@ describe("sectionFor", () => {
   it("ignores a malformed pattern rather than breaking the run", () => {
     const bad = [{ titlePattern: "([unclosed", section: "Nope" }];
     expect(sectionFor("anything", "Teachers", bad)).toBe("Teachers");
+  });
+});
+
+describe("Calendar lane", () => {
+  it("routes an iCalendar feed to the Calendar lane", () => {
+    expect(laneForSource(source({ name: "School Calendar (MyOS)", type: "ical_feed" }))).toBe("calendar");
+  });
+
+  it("keeps the private feed URL out of the committed config", async () => {
+    const { SourcesConfigSchema } = await import("../src/types/schema.js");
+    const raw = await import("node:fs/promises").then((fs) =>
+      fs.readFile(new URL("../data/sources.json", import.meta.url), "utf-8"),
+    );
+    const feed = SourcesConfigSchema.parse(JSON.parse(raw)).sources.find((entry) => entry.type === "ical_feed");
+    expect(feed).toBeDefined();
+    expect(feed?.url).toBeUndefined();
+    expect(feed?.urlEnv).toBeTruthy();
+    // It needs no login, so CI must be able to run it.
+    expect(feed?.localOnly).toBe(false);
+    expect(raw).not.toMatch(/iCal\.aspx|podium\/feed|webcal:/i);
+  });
+});
+
+describe("lane-scoped section rules", () => {
+  const rules = [
+    { titlePattern: "Inside the Spark", section: "General announcements" },
+    { lane: "calendar" as const, titlePattern: "early release|no school", section: "Schedule changes" },
+    { lane: "calendar" as const, titlePattern: ".*", section: "School events" },
+  ];
+
+  it("files a calendar item by a calendar-scoped rule, first match wins", () => {
+    expect(sectionFor("Early Release Day", undefined, rules, "calendar")).toBe("Schedule changes");
+    expect(sectionFor("Picture Day", undefined, rules, "calendar")).toBe("School events");
+  });
+
+  it("never applies a calendar-scoped rule to another lane's item", () => {
+    // The catch-all would otherwise file every email under "School events".
+    expect(sectionFor("Happy Monday!", "Teachers", rules, "email")).toBe("Teachers");
+    expect(sectionFor("Early Release Day", "Teachers", rules, "email")).toBe("Teachers");
+  });
+
+  it("still applies an unscoped rule in any lane", () => {
+    expect(sectionFor("Inside the Spark | Newsletter", "Teachers", rules, "email")).toBe("General announcements");
+  });
+
+  it("builds the calendar lane's sections from its rules, without leaking unscoped ones", () => {
+    const sources = [
+      source({ name: "Teacher Emails", type: "gmail", lane: "email", section: "Teachers" }),
+      source({ name: "School Calendar", type: "ical_feed", urlEnv: "FEED", lane: "calendar" }),
+    ];
+    expect(laneSectionsFrom(sources, rules)).toEqual({
+      email: ["Teachers", "General announcements"],
+      calendar: ["Schedule changes", "School events"],
+    });
   });
 });

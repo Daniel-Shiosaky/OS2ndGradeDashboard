@@ -108,9 +108,19 @@ export function laneSectionsFrom(
   for (const source of sources) {
     if (source.enabled && source.section) addSection(laneForSource(source), source.section);
   }
-  // A rule can name a section no enabled source declares.
+  // A rule can name a section no enabled source declares. An unscoped rule is
+  // added to every lane that has sections; a lane-scoped rule only to its own
+  // lane, and it creates that lane's section list when no source declared one
+  // (the Calendar lane is sectioned entirely by title rules).
+  // Decided before the scoped rules run, so a Calendar section list built from
+  // scoped rules does not also pick up the email lane's "General announcements".
   for (const lane of Object.keys(byLane) as Lane[]) {
-    for (const rule of sectionRules) addSection(lane, rule.section);
+    for (const rule of sectionRules) {
+      if (!rule.lane) addSection(lane, rule.section);
+    }
+  }
+  for (const rule of sectionRules) {
+    if (rule.lane) addSection(rule.lane, rule.section);
   }
   return byLane;
 }
@@ -145,6 +155,7 @@ function higherPriority(
 export function laneForSource(source: SourceConfigEntry): Lane {
   if (source.lane) return source.lane;
   if (source.type === "newsletter_board" || source.type === "google_doc") return "newsletter";
+  if (source.type === "ical_feed") return "calendar";
   if (/classdojo/i.test(source.name)) return "classdojo";
   return "email";
 }
@@ -162,8 +173,11 @@ export function sectionFor(
   title: string,
   sourceSection: string | undefined,
   rules: SectionRule[],
+  lane?: Lane,
 ): string | undefined {
   for (const rule of rules) {
+    // A lane-scoped rule never files an item that belongs to another lane.
+    if (rule.lane && rule.lane !== lane) continue;
     try {
       if (new RegExp(rule.titlePattern, "i").test(title)) return rule.section;
     } catch {
@@ -221,6 +235,40 @@ function isSupersededWeeklyEvent(event: SchoolEvent, earliestDateByFamily: Map<s
  * title with conflicting dates, the higher-priority source wins but the
  * conflict is preserved in the change log rather than silently dropped.
  */
+/**
+ * Names of sources whose latest run is a complete snapshot, so anything they
+ * previously published and no longer report should be removed. Only a snapshot
+ * that actually contains events counts: an empty result is more likely a bad
+ * fetch than a calendar that really became empty, and must not wipe good data.
+ */
+function snapshotSourceNames(extractions: SourceExtraction[]): Set<string> {
+  return new Set(
+    extractions
+      .filter((extraction) => extraction.source.type === "ical_feed" && extraction.events.length > 0)
+      .map((extraction) => extraction.source.name),
+  );
+}
+
+/**
+ * True when two *different sources* report the same title for non-overlapping
+ * dates. A multi-day event overlaps every date inside its span, so the calendar's
+ * "Christmas Shoppe, Dec 7-10" does not conflict with ClassDojo's Dec 9 and Dec 10
+ * sessions — they agree, and treating them as a conflict dropped the sessions.
+ */
+function sourcesDisagree(group: { event: SchoolEvent; source: SourceConfigEntry }[]): boolean {
+  for (let first = 0; first < group.length; first++) {
+    for (let second = first + 1; second < group.length; second++) {
+      const left = group[first]!;
+      const right = group[second]!;
+      if (left.source.name === right.source.name) continue;
+      const leftEnd = left.event.end_date ?? left.event.date;
+      const rightEnd = right.event.end_date ?? right.event.date;
+      if (left.event.date > rightEnd || right.event.date > leftEnd) return true;
+    }
+  }
+  return false;
+}
+
 export function mergeEvents(
   existing: SchoolEvent[],
   extractions: SourceExtraction[],
@@ -242,6 +290,7 @@ export function mergeEvents(
         event: {
           id: `${slugify(candidate.title)}-${candidate.date}`,
           date: candidate.date,
+          ...(candidate.end_date ? { end_date: candidate.end_date } : {}),
           time: candidate.time,
           title: candidate.title,
           category: candidate.category,
@@ -258,7 +307,12 @@ export function mergeEvents(
             lane: laneForSource(extraction.source),
             role: roleForSource(extraction.source),
             ...(() => {
-              const section = sectionFor(candidate.title, extraction.source.section, sectionRules);
+              const section = sectionFor(
+                candidate.title,
+                extraction.source.section,
+                sectionRules,
+                laneForSource(extraction.source),
+              );
               return section ? { section } : {};
             })(),
           },
@@ -282,10 +336,9 @@ export function mergeEvents(
 
   const surviving: Candidate[] = [];
   for (const [, group] of byTitle) {
-    const sourceNames = new Set(group.map((candidate) => candidate.source.name));
     const dates = new Set(group.map((candidate) => candidate.event.date));
 
-    if (sourceNames.size > 1 && dates.size > 1) {
+    if (sourcesDisagree(group)) {
       const winner = group.reduce((best, cur) =>
         higherPriority(best.source, cur.source) === cur.source ? cur : best,
       ).source;
@@ -330,8 +383,17 @@ export function mergeEvents(
   // (a source being temporarily unavailable must not delete valid data),
   // unless the new merge already produced an event under the same id.
   const earliestDateByFamily = earliestDatePerWeeklySource(extractions);
+  const snapshotSources = snapshotSourceNames(extractions);
   for (const event of existing) {
     if (seenIds.has(event.id)) continue;
+    // A calendar feed is a complete snapshot of what is on the calendar, so an
+    // event it no longer reports is gone (cancelled, moved, or now filtered out).
+    // Without this, anything published before a filter was tightened — or before
+    // an event was cancelled — would stay on the dashboard for good.
+    if (snapshotSources.has(event.source.name)) {
+      changes.push({ type: "removed", event });
+      continue;
+    }
     if (isSupersededWeeklyEvent(event, earliestDateByFamily)) {
       changes.push({ type: "removed", event });
       continue;

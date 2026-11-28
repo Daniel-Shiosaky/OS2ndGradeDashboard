@@ -527,6 +527,45 @@ async function fetchGoogleDoc(url: string): Promise<string> {
   return (await response.text()).replace(/^﻿/, "").trim();
 }
 
+/**
+ * iCalendar feeds (the school's MyOS calendar). Plain HTTP, no browser, no login,
+ * so this runs in CI too.
+ *
+ * The feed URL carries a private token. It is read from the environment, never
+ * written to the raw file, never logged, and never cited on the dashboard: the
+ * published source link comes from citeUrlEnv, a page that is safe to share.
+ * Errors name the HTTP status only, since a fetch error can echo the URL.
+ */
+async function fetchIcalFeedSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
+  const fetched: FetchedSource[] = [];
+  const failures: FetchReport["failures"] = [];
+
+  for (const source of sources) {
+    try {
+      const feedUrl = resolveUrl(source);
+      const response = await fetch(feedUrl, { signal: AbortSignal.timeout(30_000) });
+      if (!response.ok) throw new Error(`calendar feed returned HTTP ${response.status}`);
+      const text = await response.text();
+      if (!text.includes("BEGIN:VCALENDAR")) {
+        throw new Error("calendar feed did not return an iCalendar document (the link may have expired)");
+      }
+      const citeUrl = source.citeUrlEnv ? process.env[source.citeUrlEnv] : undefined;
+      const { url: _feedUrlOmitted, ...sourceWithoutUrl } = source;
+      fetched.push({
+        source: citeUrl ? { ...sourceWithoutUrl, url: citeUrl } : sourceWithoutUrl,
+        text,
+        fetchedAt: new Date().toISOString(),
+      });
+      console.log(`  OK   ${source.name} (${text.length} chars)`);
+    } catch (err) {
+      const message = err instanceof Error && !/fetch failed/i.test(err.message) ? err.message : "calendar feed could not be fetched";
+      failures.push({ source, error: message });
+      console.log(`  FAIL ${source.name}: ${message}`);
+    }
+  }
+  return { fetched, failures };
+}
+
 async function fetchGoogleDocSources(sources: SourceConfigEntry[]): Promise<FetchReport> {
   const fetched: FetchedSource[] = [];
   const failures: FetchReport["failures"] = [];
@@ -814,6 +853,7 @@ export async function fetchAllSources(): Promise<FetchReport> {
   const googleDocSources = enabledSources.filter((source) => source.type === "google_doc");
   const newsletterSources = enabledSources.filter((source) => source.type === "newsletter_board");
   const classDojoSources = enabledSources.filter((source) => source.type === "classdojo");
+  const icalSources = enabledSources.filter((source) => source.type === "ical_feed");
 
   // Newsletter discovery can fall back to scanning these, so they run first.
   const results = await Promise.all([
@@ -822,6 +862,7 @@ export async function fetchAllSources(): Promise<FetchReport> {
     fetchGmailSources(gmailSources),
     fetchGoogleDocSources(googleDocSources),
     fetchClassDojoSources(classDojoSources),
+    fetchIcalFeedSources(icalSources),
   ]);
   results.push(
     await fetchNewsletterBoardSources(newsletterSources, results.flatMap((report) => report.fetched)),

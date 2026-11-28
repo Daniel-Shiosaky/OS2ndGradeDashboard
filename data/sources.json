@@ -34,6 +34,18 @@
       "role": "ClassDojo"
     },
     {
+      "name": "School Calendar (MyOS)",
+      "type": "ical_feed",
+      "urlEnv": "MYOS_CALENDAR_FEED_URL",
+      "citeUrlEnv": "MYOS_CALENDAR_PAGE_URL",
+      "enabled": true,
+      "localOnly": false,
+      "priority": 2,
+      "lane": "calendar",
+      "role": "School calendar",
+      "wholeSchool": true
+    },
+    {
       "name": "Teacher Emails",
       "type": "gmail",
       "enabled": true,
@@ -100,6 +112,21 @@
     {
       "titlePattern": "Inside the Spark",
       "section": "General announcements"
+    },
+    {
+      "lane": "calendar",
+      "titlePattern": "no school|early release|early dismissal|half day|break|holiday|vacation|teacher work|dismissal",
+      "section": "Schedule changes"
+    },
+    {
+      "lane": "calendar",
+      "titlePattern": "concert|spectacular|recital|musical|open mic|christmas show|celebrate the season|cider",
+      "section": "Concerts & performances"
+    },
+    {
+      "lane": "calendar",
+      "titlePattern": ".*",
+      "section": "School events"
     }
   ]
 }

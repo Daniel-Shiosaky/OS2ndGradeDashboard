@@ -47,6 +47,7 @@ export function activeNewsletterWeek(weekLabel: string | undefined, todayIso: st
 /** Minimal shape needed here, so tests do not have to build a full event. */
 export interface FeedItem {
   date: string;
+  end_date?: string;
   category: string;
 }
 
@@ -63,7 +64,8 @@ export function isCurrentFeedItem(item: FeedItem, week: ActiveWeek, todayIso: st
   if (item.category === "announcement") {
     return item.date >= addDays(week.weekStart, -RECENT_WINDOW_DAYS);
   }
-  return item.date >= todayIso;
+  // A multi-day event is still current until its last day.
+  return (item.end_date ?? item.date) >= todayIso;
 }
 
 /**
@@ -77,4 +79,38 @@ export function isCurrentFeedItem(item: FeedItem, week: ActiveWeek, todayIso: st
  */
 export function dateLabelSource(item: FeedItem & { received_at?: string }): string {
   return item.category === "announcement" ? (item.received_at ?? item.date) : item.date;
+}
+
+/**
+ * Sort key for a time label such as "6:00-7:00 PM", "11:30 AM - 1:00 PM" or
+ * "12:10 PM": minutes after midnight of the START, or -1 for an all-day item so
+ * those list first. The period is read from the first AM/PM anywhere in the
+ * label, because "6:00-7:00 PM" only prints it once.
+ */
+export function timeSortKey(time: string | null | undefined): number {
+  if (!time) return -1;
+  const clock = time.match(/(\d{1,2}):(\d{2})/);
+  if (!clock) return -1;
+  const period = time.match(/\b(AM|PM)\b/i)?.[1]?.toUpperCase();
+  let hours = Number(clock[1]) % 12;
+  if (period === "PM") hours += 12;
+  return hours * 60 + Number(clock[2]);
+}
+
+/** Last day an item is still relevant: the end of a multi-day event, else its date. */
+export function lastDayOf(item: { date: string; end_date?: string }): string {
+  return item.end_date ?? item.date;
+}
+
+/** How far ahead the Calendar card looks. Later items are under "Open all". */
+export const CALENDAR_HORIZON_DAYS = 21;
+
+/**
+ * True when a calendar item starts within the card's horizon (or has already
+ * started and is still running). The card lists everything in that window
+ * instead of a row cap: a capped, section-rotated list filled up with early
+ * December items and left the Dec 15 concert off the card entirely.
+ */
+export function isWithinCalendarHorizon(item: { date: string }, todayIso: string): boolean {
+  return item.date <= addDays(todayIso, CALENDAR_HORIZON_DAYS);
 }

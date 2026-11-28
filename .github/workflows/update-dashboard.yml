@@ -86,6 +86,11 @@ jobs:
           GMAIL_FILTER_COMMUNICATIONS: ${{ secrets.GMAIL_FILTER_COMMUNICATIONS }}
           GMAIL_FILTER_MASS_EMAILS: ${{ secrets.GMAIL_FILTER_MASS_EMAILS }}
           GMAIL_FILTER_TEACHER: ${{ secrets.GMAIL_FILTER_TEACHER }}
+          # Calendar lane: a public iCalendar feed, so it needs no login and runs in CI.
+          # The feed URL holds a private token (secret); the page URL is what the
+          # dashboard links to.
+          MYOS_CALENDAR_FEED_URL: ${{ secrets.MYOS_CALENDAR_FEED_URL }}
+          MYOS_CALENDAR_PAGE_URL: ${{ secrets.MYOS_CALENDAR_PAGE_URL }}
           # REQUIRED for the email lane's privacy filter. Without REDACT_NAMES the
           # "message names the child" gate silently no-ops, and without
           # MAIL_BULK_DOMAINS the school's mass-mailer is not recognised as a

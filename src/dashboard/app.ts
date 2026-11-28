@@ -7,15 +7,41 @@
 // teacher, family, parent or student name, and there is no per-class or
 // per-child filter. Senders are shown by role.
 
-import { activeNewsletterWeek, dateLabelSource, isCurrentFeedItem } from "../shared/laneView.js";
+import {
+  activeNewsletterWeek,
+  dateLabelSource,
+  isCurrentFeedItem,
+  isWithinCalendarHorizon,
+  lastDayOf,
+  timeSortKey,
+} from "../shared/laneView.js";
 import { todayInTimeZone } from "../shared/weekRange.js";
-import { LANES, type EventsData, type Lane, type NewsletterDigest, type SchoolEvent } from "../types/schema.js";
+import {
+  LANES,
+  type Category,
+  type EventsData,
+  type Lane,
+  type NewsletterDigest,
+  type SchoolEvent,
+} from "../types/schema.js";
 
 const LANE_LABELS: Record<Lane, string> = {
   newsletter: "Newsletter",
   classdojo: "ClassDojo",
   email: "Email",
+  calendar: "Calendar",
 };
+
+const CATEGORY_LABELS: Partial<Record<Category, string>> = {
+  performance: "Performance",
+  early_dismissal: "Early dismissal",
+  no_school: "No school",
+  holiday: "Holiday",
+  field_trip: "Field trip",
+  event: "Event",
+};
+
+const categoryLabel = (event: SchoolEvent): string | undefined => CATEGORY_LABELS[event.category];
 
 /** A titled block of rows within a lane. */
 interface LaneGroup {
@@ -26,6 +52,11 @@ interface LaneGroup {
 
 const byDateAsc = (first: SchoolEvent, second: SchoolEvent) => first.date.localeCompare(second.date);
 const byDateDesc = (first: SchoolEvent, second: SchoolEvent) => second.date.localeCompare(first.date);
+/** The Calendar lane: by day, and within a day by start time (all-day first). */
+const byDateThenTime = (first: SchoolEvent, second: SchoolEvent) =>
+  first.date.localeCompare(second.date) ||
+  timeSortKey(first.time) - timeSortKey(second.time) ||
+  first.title.localeCompare(second.title);
 const byReceivedDesc = (first: SchoolEvent, second: SchoolEvent) =>
   receivedTime(second) - receivedTime(first);
 
@@ -76,18 +107,21 @@ function feedGroups(todayIso: string): LaneGroup[] {
  * Groups built from the section names the pipeline published for this lane, so
  * renaming a section in data/sources.json needs no frontend change.
  */
-function sectionGroups(sectionTitles: string[]): LaneGroup[] {
+function sectionGroups(
+  sectionTitles: string[],
+  sort: (first: SchoolEvent, second: SchoolEvent) => number = byReceivedDesc,
+): LaneGroup[] {
   return [
     ...sectionTitles.map((title) => ({
       title,
       match: (event: SchoolEvent) => event.source.section === title,
-      sort: byReceivedDesc,
+      sort,
     })),
     {
       title: "Other",
       match: (event: SchoolEvent) =>
         !event.source.section || !sectionTitles.includes(event.source.section),
-      sort: byReceivedDesc,
+      sort,
     },
   ];
 }
@@ -99,6 +133,8 @@ function groupsForLane(
 ): LaneGroup[] {
   if (lane === "newsletter") return NEWSLETTER_GROUPS;
   const sectionTitles = laneSections?.[lane] ?? [];
+  // The calendar is forward-looking, so its sections list soonest first.
+  if (lane === "calendar") return sectionGroups(sectionTitles, byDateThenTime);
   return sectionTitles.length > 0 ? sectionGroups(sectionTitles) : feedGroups(todayIso);
 }
 
@@ -158,6 +194,13 @@ function formatDay(dateStr: string): string {
  * the next day in UTC, which disagreed with the date the backend computed. A bare
  * calendar date has no zone, so it stays on UTC to avoid shifting it a day.
  */
+/** "Mon, Dec 7", or "Mon, Dec 7 – Thu, Dec 10" for a multi-day event. */
+function formatDayRange(event: SchoolEvent): string {
+  return event.end_date && event.end_date !== event.date
+    ? `${formatDay(event.date)} – ${formatDay(event.end_date)}`
+    : formatDay(event.date);
+}
+
 function formatReceived(event: SchoolEvent, timeZone: string): string {
   const raw = dateLabelSource(event);
   const isBareDate = raw.length <= 10;
@@ -219,6 +262,12 @@ function eventRow(event: SchoolEvent, ctx: RowContext): HTMLElement {
   if (event.source.lane === "newsletter") {
     // The lane header already names the source, so show the day instead.
     parts.push(formatDay(event.date));
+  } else if (event.source.lane === "calendar") {
+    // A calendar item is about WHEN it happens, not when it was posted.
+    parts.push(formatDayRange(event));
+    if (event.time) parts.push(event.time);
+    const label = categoryLabel(event);
+    if (label) parts.push(label);
   } else {
     if (event.source.role) parts.push(event.source.role);
     parts.push(formatReceived(event, ctx.timeZone));
@@ -271,7 +320,8 @@ function init(data: EventsData): void {
   // The cards follow the active newsletter week, which is usually the coming
   // week rather than the one containing today. "Open all" keeps the full history.
   const activeWeek = activeNewsletterWeek(data.newsletter?.week_label, todayIsoDate);
-  const upcoming = data.events.filter((event) => event.date >= todayIsoDate);
+  // A multi-day event stays current until its last day.
+  const upcoming = data.events.filter((event) => lastDayOf(event) >= todayIsoDate);
 
   /** Dashboard cards: the Newsletter lane's coming items, current items elsewhere. */
   const byLane = new Map<Lane, SchoolEvent[]>();
@@ -283,10 +333,12 @@ function init(data: EventsData): void {
   }
   for (const event of data.events) {
     const lane = event.source.lane ?? "newsletter";
-    if (lane === "newsletter") {
+    if (lane === "newsletter" || lane === "calendar") {
       if (!upcoming.includes(event)) continue;
-      byLane.get(lane)?.push(event);
       byLaneAll.get(lane)?.push(event);
+      // The Calendar card looks a few weeks ahead; the rest is under "Open all".
+      if (lane === "calendar" && !isWithinCalendarHorizon(event, todayIsoDate)) continue;
+      byLane.get(lane)?.push(event);
       continue;
     }
     byLaneAll.get(lane)?.push(event);
@@ -296,6 +348,7 @@ function init(data: EventsData): void {
     for (const lane of LANES) {
       const items = lanes.get(lane)!;
       if (lane === "newsletter") items.sort((first, second) => first.date.localeCompare(second.date));
+      else if (lane === "calendar") items.sort(byDateThenTime);
       else items.sort((first, second) => receivedTime(second) - receivedTime(first));
     }
   }
@@ -316,8 +369,12 @@ function init(data: EventsData): void {
     $("#detail-kicker").textContent = LANE_LABELS[event.source.lane ?? "newsletter"];
     $("#detail-title").textContent = event.title;
 
-    const meta: string[] = [formatDay(event.date)];
+    const meta: string[] = [formatDayRange(event)];
     if (event.time) meta.push(event.time);
+    if (event.source.lane === "calendar") {
+      const label = categoryLabel(event);
+      if (label) meta.push(label);
+    }
     if (event.source.role) meta.push(event.source.role);
     if (event.whole_school) meta.push("Whole school");
     $("#detail-meta").textContent = meta.join(" · ");
@@ -434,6 +491,11 @@ function init(data: EventsData): void {
   ): void {
     element.textContent = "";
 
+    if (lane === "calendar") {
+      element.textContent = "Concerts, early releases and other special school events";
+      return;
+    }
+
     if (lane !== "newsletter") {
       // Both feed lanes are split into Upcoming (soonest first) and Messages
       // (newest first), so "newest first" alone would misdescribe them.
@@ -483,18 +545,27 @@ function init(data: EventsData): void {
           body,
           lane === "newsletter"
             ? "No newsletter items yet."
-            : byLaneAll.get(lane)!.length > 0
+            : lane === "calendar"
+              ? "No upcoming special events on the school calendar."
+              : byLaneAll.get(lane)!.length > 0
               ? `Nothing recent in ${LANE_LABELS[lane]}. Older items are under "Open all".`
               : `No ${LANE_LABELS[lane]} items — this source is not switched on yet.`,
         );
       } else {
-        renderGrouped(body, items, groupsForLane(lane, data.lane_sections, todayIsoDate), ROWS_PER_LANE);
+        // The Calendar card is bounded by its date horizon, not by a row count.
+        renderGrouped(
+          body,
+          items,
+          groupsForLane(lane, data.lane_sections, todayIsoDate),
+          lane === "calendar" ? null : ROWS_PER_LANE,
+        );
       }
 
       const more = document.querySelector<HTMLButtonElement>(`[data-more="${lane}"]`)!;
       // Offer "Open all" whenever it would show more than the card does: either
       // the card hit its row cap, or older items were filtered out of the card.
-      more.hidden = byLaneAll.get(lane)!.length <= Math.min(items.length, ROWS_PER_LANE);
+      more.hidden =
+        byLaneAll.get(lane)!.length <= (lane === "calendar" ? items.length : Math.min(items.length, ROWS_PER_LANE));
       more.textContent = `Open all ${LANE_LABELS[lane]} items`;
     }
 
