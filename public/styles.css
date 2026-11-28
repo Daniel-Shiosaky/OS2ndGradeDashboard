@@ -421,6 +421,11 @@ main {
 
 .segment {
   flex: 1;
+  /* A flex item will not shrink below its content unless told it may. Without
+     this the four buttons (label + count) were wider than a phone, which pushed
+     the page itself wider than the screen: browsers then shrank the whole page
+     or let it scroll sideways, and the last button overlapped the one before. */
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -593,6 +598,25 @@ main {
     display: block;
   }
 
+  /* Four buttons share one row, so each is narrow: stack the count under the
+     label rather than beside it. */
+  .segmented {
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .segment {
+    flex-direction: column;
+    gap: 3px;
+    padding: 8px 2px;
+    font-size: 0.8rem;
+    line-height: 1.15;
+  }
+
+  .segment__label {
+    max-width: 100%;
+  }
+
   .lanes {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -604,6 +628,12 @@ main {
 
   .lane.is-active {
     display: flex;
+  }
+}
+
+@media (max-width: 359px) {
+  .segment {
+    font-size: 0.72rem;
   }
 }
 
