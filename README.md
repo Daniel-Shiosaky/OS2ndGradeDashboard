@@ -25,8 +25,9 @@ Four lanes, one per source, so a parent always knows where to look:
 | Calendar | the school's MyOS calendar, as an iCalendar feed (no login) | Schedule changes / Concerts & performances / School events |
 
 Desktop shows four columns on wide screens and two on mid-size ones. Below 760px a
-segmented control under the header shows one lane at a time. Unread state is kept per browser in `localStorage`,
-because there is no login.
+segmented control under the header shows one lane at a time. "New" is worked out per browser, because there is no login: an item is new when it was
+not on the dashboard at your previous visit, and it stays marked until you open it. A
+first visit shows nothing as new, and a reload keeps the same count.
 
 ## How it works
 

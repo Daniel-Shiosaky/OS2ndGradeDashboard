@@ -26,6 +26,7 @@ import {
   pickLatestNewsletter,
   type BoardLink,
 } from "../shared/newsletter.js";
+import { chooseEmailBody } from "../shared/emailText.js";
 import { classDojoApiPath } from "../shared/parseClassDojo.js";
 import { slugify } from "../shared/text.js";
 import { isMainModule } from "./runGuard.js";
@@ -683,15 +684,6 @@ async function fetchNewsletterBoardSources(
   return { fetched, failures };
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 // Connects to Gmail via IMAP (app password) once, then runs each gmail
 // source as a mailbox search (optionally filtered by sender + lookback
 // window) in the same connection.
@@ -809,7 +801,9 @@ async function fetchGmailSources(sources: SourceConfigEntry[]): Promise<FetchRep
             const message = await client.fetchOne(uid, { source: true }, { uid: true });
             if (!message || !message.source) continue;
             const parsed = await simpleParser(message.source);
-            const body = parsed.text ?? (parsed.html ? stripHtml(parsed.html) : "");
+            // Prefer the plain part, but not when it is only a "view in browser" stub:
+            // the real message is then in the HTML part.
+            const body = chooseEmailBody(parsed.text, parsed.html);
             messages.push(describeEmail(parsed, body));
           }
 

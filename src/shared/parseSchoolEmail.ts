@@ -16,6 +16,7 @@
 // URL, so a false positive is unrecoverable while a false negative just means an
 // item is missing.
 
+import { sanitizeLinks, stripViewInBrowserNoise } from "./emailText.js";
 import { mustDropLine, redactPersonalNames } from "./redact.js";
 import { looksSchoolRelevant } from "./relevance.js";
 import { isoDateInTimeZone } from "./weekRange.js";
@@ -79,8 +80,12 @@ const DIRECT_SUBJECT_PATTERNS = [
  */
 const BOILERPLATE_MARKERS = [
   /^--\s*$/,
-  /^_{5,}/,
-  /^-{5,}/,
+  // A quoted or forwarded message follows. A bare row of dashes is NOT a marker:
+  // newsletters use it as a heading underline, and cutting there kept only the
+  // title of the school's own newsletter (20 of ~7,000 characters).
+  /^-{3,}\s*(?:original|forwarded) message\s*-*\s*$/i,
+  /^on .{5,160} wrote:\s*$/i,
+  /^>/,
   /this (?:e-?mail|message) and any attachments/i,
   /confidentiality notice/i,
   /^sent from my /i,
@@ -89,10 +94,25 @@ const BOILERPLATE_MARKERS = [
   /^click here to unsubscribe/i,
 ];
 
-/** Cuts an email body at the first boilerplate marker. */
+/** A line of nothing but dashes, underscores or equals signs. */
+const DIVIDER_LINE = /^[-_=]{5,}\s*$/;
+/** The header block that follows an Outlook-style reply divider. */
+const REPLY_HEADER = /^(?:from|sent|date|to|subject):/i;
+
+/**
+ * Cuts an email body at the first boilerplate marker. A divider line only counts
+ * when it introduces a quoted message (the next line is a From:/Sent: header);
+ * as a plain underline or separator it is content.
+ */
 export function trimEmailBoilerplate(body: string): string {
   const lines = body.split(/\r?\n/);
-  const cut = lines.findIndex((line) => BOILERPLATE_MARKERS.some((pattern) => pattern.test(line.trim())));
+  const cut = lines.findIndex((line, index) => {
+    const trimmed = line.trim();
+    if (BOILERPLATE_MARKERS.some((pattern) => pattern.test(trimmed))) return true;
+    if (!DIVIDER_LINE.test(trimmed)) return false;
+    const next = lines.slice(index + 1).find((candidate) => candidate.trim() !== "");
+    return next !== undefined && REPLY_HEADER.test(next.trim());
+  });
   return (cut === -1 ? lines : lines.slice(0, cut)).join("\n").trim();
 }
 
@@ -201,7 +221,9 @@ export function parseSchoolEmail(
     }
 
     // Footers are neither content nor evidence; drop them before anything else.
-    const cleanBody = trimEmailBoilerplate(message.body);
+    // Links are made safe to publish here, so every caller gets the same rule: a
+    // recipient-specific link (unsubscribe, profile, a subscriber token) never goes out.
+    const cleanBody = sanitizeLinks(stripViewInBrowserNoise(trimEmailBoilerplate(message.body)));
     const haystack = `${message.subject}\n${cleanBody}`;
 
     // 2b. A configured child's name anywhere means the message is about that

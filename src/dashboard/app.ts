@@ -18,6 +18,13 @@ import {
 } from "../shared/laneView.js";
 import { todayInTimeZone } from "../shared/weekRange.js";
 import {
+  isUnread,
+  newSinceLastVisit,
+  parseSessionNewIds,
+  parseSnapshot,
+  snapshotOf,
+} from "../shared/visitState.js";
+import {
   LANES,
   type Category,
   type EventsData,
@@ -143,6 +150,10 @@ function groupsForLane(
 const ROWS_PER_LANE = 8;
 
 const READ_STORAGE_KEY = "os2g.readItems.v1";
+/** localStorage: the ids on the dashboard at the end of the previous visit. */
+const VISIT_STORAGE_KEY = "os2g.visit.v2";
+/** sessionStorage: which ids were new at the start of THIS visit, so a reload keeps the answer. */
+const SESSION_STORAGE_KEY = "os2g.sessionNew.v2";
 
 function $(selector: string): HTMLElement {
   const el = document.querySelector<HTMLElement>(selector);
@@ -167,6 +178,37 @@ function loadReadIds(): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+/**
+ * The ids that are new this visit: on the dashboard now, but not at the last visit.
+ *
+ * Worked out once per browser session. A reload (or coming back to the tab) keeps
+ * the same answer instead of treating everything as already seen; the snapshot
+ * only rolls forward when a new session starts. Storage can throw in private
+ * modes, in which case nothing is flagged new rather than everything.
+ */
+function resolveNewIds(currentIds: string[]): Set<string> {
+  try {
+    const remembered = parseSessionNewIds(sessionStorage.getItem(SESSION_STORAGE_KEY));
+    if (remembered) return remembered;
+  } catch {
+    /* fall through and compute it */
+  }
+  let previous = null;
+  try {
+    previous = parseSnapshot(localStorage.getItem(VISIT_STORAGE_KEY));
+  } catch {
+    /* no previous visit */
+  }
+  const newIds = newSinceLastVisit(currentIds, previous);
+  try {
+    sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify([...newIds]));
+    localStorage.setItem(VISIT_STORAGE_KEY, JSON.stringify(snapshotOf(currentIds, new Date())));
+  } catch {
+    /* private mode or storage full: counts just won't carry to the next visit */
+  }
+  return newIds;
 }
 
 function saveReadIds(ids: Set<string>): void {
@@ -314,6 +356,7 @@ function init(data: EventsData): void {
   const timeZone = data.timezone || "UTC";
   const todayIsoDate = todayInTimeZone(timeZone);
   const readIds = loadReadIds();
+  const newIds = resolveNewIds(data.events.map((event) => event.id));
 
   $("#class-name").textContent = data.school_name;
   document.title = data.school_name;
@@ -354,7 +397,9 @@ function init(data: EventsData): void {
     }
   }
 
-  const isRead = (event: SchoolEvent) => readIds.has(event.id);
+  // "Unread" means new since the last visit and not opened yet. Anything that was
+  // already on the dashboard at the last visit is not unread, however long ago it appeared.
+  const isRead = (event: SchoolEvent) => !isUnread(event.id, newIds, readIds);
   const unreadCount = (lane: Lane) => byLane.get(lane)!.filter((event) => !isRead(event)).length;
 
   const detailDialog = $("#detail-dialog") as HTMLDialogElement;
