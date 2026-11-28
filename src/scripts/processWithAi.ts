@@ -6,6 +6,7 @@ import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { getAiProvider } from "./aiProvider.js";
 import { parseNewsletter } from "../shared/parseNewsletter.js";
+import { parseCalendarFeed, summariseCalendarWithheld } from "../shared/parseCalendarFeed.js";
 import { parseClassDojo } from "../shared/parseClassDojo.js";
 import { parseSchoolEmail, summariseWithheld } from "../shared/parseSchoolEmail.js";
 import { namesFromEnv, redactSourceText, sanitizeExtractedEvents } from "../shared/redact.js";
@@ -233,6 +234,21 @@ export async function extractFromSource(
     const summary = summariseWithheld(withheld);
     if (summary) console.log(`  ..   ${fetched.source.name}: withheld ${summary}`);
     console.log(`  OK   parsed ${fetched.source.name}: ${events.length} item(s) (no AI needed)`);
+    return { source: fetched.source, events };
+  }
+
+  // The school calendar is a standard iCalendar feed, so it is parsed fully
+  // deterministically and never sent to a model: an empty result means there is
+  // nothing special on the calendar, not that the format changed.
+  if (fetched.source.type === "ical_feed") {
+    const childNames = namesFromEnv(process.env);
+    if (childNames.length === 0) {
+      console.log("  WARN REDACT_NAMES is not set — child-name filtering is disabled for the calendar");
+    }
+    const { events, withheld } = parseCalendarFeed(fetched.text, { timeZone, extraNames: childNames, today });
+    const summary = summariseCalendarWithheld(withheld);
+    if (summary) console.log(`  ..   ${fetched.source.name}: withheld ${summary}`);
+    console.log(`  OK   parsed ${fetched.source.name}: ${events.length} event(s) (no AI needed)`);
     return { source: fetched.source, events };
   }
 

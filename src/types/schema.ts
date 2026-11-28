@@ -13,6 +13,7 @@ export const CATEGORIES = [
   "holiday",
   "no_school",
   "early_dismissal",
+  "performance",
   "other",
 ] as const;
 
@@ -21,8 +22,8 @@ export type Category = (typeof CATEGORIES)[number];
 export const IMPORTANCE_LEVELS = ["high", "medium", "low"] as const;
 export type Importance = (typeof IMPORTANCE_LEVELS)[number];
 
-/** The three dashboard lanes, one per source, so parents know where to look. */
-export const LANES = ["newsletter", "classdojo", "email"] as const;
+/** The dashboard lanes, one per source, so parents know where to look. */
+export const LANES = ["newsletter", "classdojo", "email", "calendar"] as const;
 export type Lane = (typeof LANES)[number];
 
 export const SourceRefSchema = z.object({
@@ -43,6 +44,11 @@ export type SourceRef = z.infer<typeof SourceRefSchema>;
 export const SchoolEventSchema = z.object({
   id: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD"),
+  /** Last day of a multi-day event (inclusive). Absent for a single-day item. */
+  end_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "end_date must be YYYY-MM-DD")
+    .optional(),
   time: z.string().nullable().default(null),
   title: z.string().min(1),
   category: z.enum(CATEGORIES),
@@ -105,6 +111,10 @@ export const SourceConfigEntrySchema = z
     // subdomain) out of a committed/public sources.json.
     url: z.string().url().optional(),
     urlEnv: z.string().optional(),
+    // ical_feed only: a page that is safe to LINK from the dashboard (the feed URL
+    // itself holds a private token and must never be published). Read from this env
+    // var so a real school subdomain stays out of the committed file.
+    citeUrlEnv: z.string().optional(),
     // google_doc     — public Google Doc read via its plain-text export URL.
     //                  No auth, no browser; runs anywhere including CI.
     // newsletter_board — logs into the school portal, finds the newest weekly
@@ -112,6 +122,9 @@ export const SourceConfigEntrySchema = z
     //                  that (public) Google Doc. Login means local-only.
     // classdojo — logs into the ClassDojo parent app and reads one of its SPA
     //              pages (#/events, #/story). Login means local-only.
+    // ical_feed — a public iCalendar (.ics) feed fetched over plain HTTP: no
+    //              browser, no login, so it runs in CI. The feed URL carries a
+    //              private token, so it is only ever read from urlEnv.
     type: z.enum([
       "website",
       "calendar",
@@ -121,6 +134,7 @@ export const SourceConfigEntrySchema = z
       "google_doc",
       "newsletter_board",
       "classdojo",
+      "ical_feed",
     ]),
     enabled: z.boolean().default(true),
     // Sources needing an interactive login can't run on a CI runner: set this
@@ -164,6 +178,10 @@ export type SourceConfigEntry = z.infer<typeof SourceConfigEntrySchema>;
 export const SectionRuleSchema = z.object({
   titlePattern: z.string().min(1),
   section: z.string().min(1),
+  // When set, the rule only applies to items in this lane and only adds its
+  // section there. Without it a rule applies everywhere, which is right for
+  // "Inside the Spark" but would leak a Calendar section into every other lane.
+  lane: z.enum(LANES).optional(),
 });
 export type SectionRule = z.infer<typeof SectionRuleSchema>;
 

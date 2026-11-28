@@ -1,7 +1,7 @@
 # 2nd Grade Dashboard
 
 One shared dashboard for both 2nd-grade classes. It gathers the week's school
-information from three sources, strips anything personal, and publishes a
+information from four sources, strips anything personal, and publishes a
 static page that parents open from a link shared in a group chat. It runs at
 about $0/month on GitHub Pages and GitHub Actions, with no database and no
 server at request time.
@@ -15,16 +15,17 @@ changing how a source is parsed.
 
 ## What parents see
 
-Three lanes, one per source, so a parent always knows where to look:
+Four lanes, one per source, so a parent always knows where to look:
 
 | Lane | Source | Sections |
 | --- | --- | --- |
 | Newsletter | the week's Google Doc, found via the school portal | Tests / Homework / To do / Events |
 | ClassDojo | the parent app's JSON APIs | Upcoming / Messages |
 | Email | broadcast school mail over IMAP | Teachers / General announcements |
+| Calendar | the school's MyOS calendar, as an iCalendar feed (no login) | Schedule changes / Concerts & performances / School events |
 
-Desktop shows three columns. Below 760px a segmented control under the header
-shows one lane at a time. Unread state is kept per browser in `localStorage`,
+Desktop shows four columns on wide screens and two on mid-size ones. Below 760px a
+segmented control under the header shows one lane at a time. Unread state is kept per browser in `localStorage`,
 because there is no login.
 
 ## How it works
@@ -139,6 +140,17 @@ frontend never restates section names.
   children, so those names never reach this process) and
   `withSyntheticPosts=false` (drops reposts that duplicate the calendar feed).
   Teacher, sender and classroom fields in the responses are never read.
+- **`ical_feed`** — the school calendar's iCalendar feed over plain HTTP: no browser, no
+  login, so it runs in CI. Get the URL from MyOS (Calendar > Options > WebCal Feed >
+  **School Calendars**) and put it in `MYOS_CALENDAR_FEED_URL`; it holds a private token, so it
+  is only ever read from the environment and is never published. `MYOS_CALENDAR_PAGE_URL` is
+  the page the dashboard links to. **Special events only:** the calendar carries more than
+  parents need, so a series (the same title repeated, or an RRULE), a class period, a
+  practice or an athletic fixture is never published, and neither is anything cancelled or
+  long past. Use the *School* calendars: a student's own Schedule feed is the daily timetable
+  and names the child. An entry naming a configured child is withheld whole. Multi-day events
+  carry an `end_date`, so a session inside the span is not mistaken for a conflict. The feed is a
+  complete snapshot, so an event it stops reporting is removed.
 - **`gmail`** — IMAP with an app password
   ([create one](https://myaccount.google.com/apppasswords); needs 2-Step
   Verification; never use the real account password). Reads newest-first within

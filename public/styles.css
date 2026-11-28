@@ -12,10 +12,12 @@
   --newsletter: #0f7b6c;
   --classdojo: #6b4fbb;
   --email: #b8521a;
+  --calendar: #1b6aa0;
 
   --newsletter-tint: #ddf2ee;
   --classdojo-tint: #ece6fa;
   --email-tint: #fbe8dc;
+  --calendar-tint: #dcebf6;
 
   --flag: #f2c230;
   --flag-text: #5a4300;
@@ -170,13 +172,19 @@ main {
   padding-bottom: 48px;
 }
 
-/* --- Lanes: three equal columns on desktop --- */
+/* --- Lanes: four columns on wide screens, two on mid-size, one on mobile --- */
 
 .lanes {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   align-items: start;
+}
+
+@media (min-width: 1180px) {
+  .lanes {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .lane {
@@ -204,6 +212,9 @@ main {
 }
 .lane--email .lane__header {
   background: var(--email);
+}
+.lane--calendar .lane__header {
+  background: var(--calendar);
 }
 
 .lane__header-text {
@@ -437,6 +448,9 @@ main {
 .segment[data-lane="email"][aria-pressed="true"] {
   background: var(--email-tint);
 }
+.segment[data-lane="calendar"][aria-pressed="true"] {
+  background: var(--calendar-tint);
+}
 
 .segment__count {
   background: var(--flag);
@@ -606,10 +620,12 @@ main {
     --newsletter: #128978;
     --classdojo: #7a5fcc;
     --email: #c75f27;
+    --calendar: #2a7db8;
 
     --newsletter-tint: #10322d;
     --classdojo-tint: #241d3d;
     --email-tint: #38200f;
+    --calendar-tint: #12303f;
   }
 
   .segment[aria-pressed="true"] {

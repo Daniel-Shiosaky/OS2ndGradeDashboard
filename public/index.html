@@ -53,6 +53,10 @@
         <span class="segment__label">Email</span>
         <span class="segment__count" data-count="email"></span>
       </button>
+      <button type="button" class="segment" data-lane="calendar" aria-pressed="false">
+        <span class="segment__label">Calendar</span>
+        <span class="segment__count" data-count="calendar"></span>
+      </button>
     </div>
   </div>
 
@@ -106,6 +110,18 @@
         </div>
         <div class="lane__body" data-body="email"></div>
         <button type="button" class="lane__more" data-more="email">Open all Email items</button>
+      </section>
+
+      <section class="lane lane--calendar" data-lane="calendar" aria-labelledby="lane-calendar-title">
+        <div class="lane__header">
+          <div class="lane__header-text">
+            <h2 class="lane__title" id="lane-calendar-title">Calendar</h2>
+            <p class="lane__description" data-description="calendar"></p>
+          </div>
+          <span class="lane__badge" data-badge="calendar" hidden></span>
+        </div>
+        <div class="lane__body" data-body="calendar"></div>
+        <button type="button" class="lane__more" data-more="calendar">Open all Calendar items</button>
       </section>
     </div>
   </main>

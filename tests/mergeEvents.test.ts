@@ -234,3 +234,88 @@ describe("mergeEvents — superseded weekly newsletter issues", () => {
     expect(merged.map((event) => event.title)).toContain("Picture Day");
   });
 });
+
+describe("mergeEvents — multi-day events from the calendar", () => {
+  const calendarSource = () => source({ name: "School Calendar", type: "ical_feed", priority: 2 });
+  const dojoSource = () => source({ name: "ClassDojo Events", type: "classdojo", priority: 3 });
+
+  it("does not treat sessions inside a multi-day span as a conflict", () => {
+    // Calendar: Christmas Shoppe Dec 7-10. ClassDojo: the Dec 9 and Dec 10 sessions.
+    const { merged, changes } = mergeEvents([], [
+      { source: calendarSource(), events: [extracted({ title: "Christmas Shoppe", date: "2026-12-07", end_date: "2026-12-10" })] },
+      {
+        source: dojoSource(),
+        events: [
+          extracted({ title: "Christmas Shoppe!", date: "2026-12-09" }),
+          extracted({ title: "Christmas Shoppe!", date: "2026-12-10" }),
+        ],
+      },
+    ]);
+    expect(merged.map((event) => event.date).sort()).toEqual(["2026-12-07", "2026-12-09", "2026-12-10"]);
+    expect(changes.filter((change) => change.type === "new")).toHaveLength(3);
+  });
+
+  it("still resolves a real disagreement: a date outside the span", () => {
+    const { merged } = mergeEvents([], [
+      { source: calendarSource(), events: [extracted({ title: "Christmas Shoppe", date: "2026-12-07", end_date: "2026-12-10" })] },
+      { source: dojoSource(), events: [extracted({ title: "Christmas Shoppe!", date: "2026-12-15" })] },
+    ]);
+    // Calendar has the lower priority number, so it wins.
+    expect(merged.map((event) => event.source.name)).toEqual(["School Calendar"]);
+  });
+
+  it("carries end_date through to the published event", () => {
+    const { merged } = mergeEvents([], [
+      { source: calendarSource(), events: [extracted({ title: "Christmas Break", date: "2026-12-21", end_date: "2027-01-04" })] },
+    ]);
+    expect(merged[0]?.end_date).toBe("2027-01-04");
+  });
+});
+
+describe("mergeEvents — a calendar feed is a complete snapshot", () => {
+  const calendar = () => source({ name: "School Calendar", type: "ical_feed", priority: 2 });
+  const calendarEvent = (title: string, date: string) =>
+    existingEvent({
+      id: `${title.toLowerCase().replace(/\W+/g, "-")}-${date}`,
+      title,
+      date,
+      source: { name: "School Calendar", url: "https://example.org/cal", lane: "calendar" },
+    });
+
+  it("removes a calendar event the feed no longer reports", () => {
+    const stale = calendarEvent("Basketball @ Away Gym", "2026-12-14");
+    const { merged, changes } = mergeEvents([stale], [
+      { source: calendar(), events: [extracted({ title: "Winter Band Concert", date: "2026-12-15" })] },
+    ]);
+    expect(merged.map((event) => event.title)).toEqual(["Winter Band Concert"]);
+    expect(changes.filter((change) => change.type === "removed").map((change) => change.event.title)).toEqual([
+      "Basketball @ Away Gym",
+    ]);
+  });
+
+  it("never wipes the calendar when the feed returned nothing (likely a bad fetch)", () => {
+    const kept = calendarEvent("Winter Band Concert", "2026-12-15");
+    const { merged, changes } = mergeEvents([kept], [{ source: calendar(), events: [] }]);
+    expect(merged).toHaveLength(1);
+    expect(changes.some((change) => change.type === "removed")).toBe(false);
+  });
+
+  it("leaves other sources' events alone", () => {
+    const email = existingEvent({
+      id: "picture-day-2026-12-01",
+      title: "Picture Day",
+      date: "2026-12-01",
+      source: { name: "School Mass Emails", url: "https://example.org/mail", lane: "email" },
+    });
+    const { merged } = mergeEvents([email], [
+      { source: calendar(), events: [extracted({ title: "Winter Band Concert", date: "2026-12-15" })] },
+    ]);
+    expect(merged.map((event) => event.title).sort()).toEqual(["Picture Day", "Winter Band Concert"]);
+  });
+
+  it("keeps the calendar's events when the feed source did not run (fetch failed)", () => {
+    const kept = calendarEvent("Winter Band Concert", "2026-12-15");
+    const { merged } = mergeEvents([kept], []);
+    expect(merged).toHaveLength(1);
+  });
+});
